@@ -1,0 +1,39 @@
+{% extends "base.html" %}
+{% block title %}课程与班级 · FacePulse{% endblock %}
+{% block page_name %}课程与班级{% endblock %}
+{% block page_content %}
+<section class="hero-row compact-hero">
+    <div><div class="eyebrow"><span></span>COURSE MANAGEMENT</div><h1>课程与班级</h1><p>将学生、人脸库和考勤任务组织为真实教学业务，而不只是一次孤立签到。</p></div>
+    <button class="kiosk-button" data-bs-toggle="modal" data-bs-target="#course-modal">＋ 创建课程</button>
+</section>
+
+<div class="sub-kpi-grid">
+    <div><span>课程总数</span><b>{{ courses|length }}</b><small>当前数据空间</small></div>
+    <div><span>开课中</span><b>{{ courses|selectattr('is_active')|list|length }}</b><small>可创建考勤任务</small></div>
+    <div><span>覆盖学生</span><b>{{ courses|map(attribute='enrollments')|map('length')|sum if courses else 0 }}</b><small>按课程累计</small></div>
+</div>
+
+<div class="course-grid">
+{% for course in courses %}
+    <article class="course-card">
+        <div class="course-card-top"><span class="course-code">{{ course.code }}</span><span class="course-state"><i></i>{{ '开课中' if course.is_active else '已归档' }}</span></div>
+        <div class="course-card-icon">{{ course.name[:2] }}</div>
+        <h2>{{ course.name }}</h2><p>{{ course.teacher }} · {{ course.classroom or '教室待定' }}</p>
+        <div class="course-stats"><span><b>{{ course.enrollments|length }}</b><small>学生</small></span><span><b>{{ course.sessions|length }}</b><small>考勤任务</small></span><span><b>{{ course.created_at.strftime('%m-%d') }}</b><small>创建日期</small></span></div>
+        <a href="{{ url_for('attendance_sessions') }}">创建本课程考勤 <span>→</span></a>
+    </article>
+{% else %}
+    <article class="panel empty-wide"><span>课</span><h2>还没有课程</h2><p>创建课程后，当前数据空间的学生会自动加入课程。</p><button data-bs-toggle="modal" data-bs-target="#course-modal">创建第一门课程</button></article>
+{% endfor %}
+</div>
+
+<div class="modal fade" id="course-modal" tabindex="-1" aria-hidden="true"><div class="modal-dialog modal-dialog-centered"><div class="modal-content fp-modal">
+    <form method="post"><div class="modal-header"><div><span>NEW COURSE</span><h2>创建课程</h2></div><button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button></div>
+    <div class="modal-body">{{ form.hidden_tag() }}
+        <div class="form-floating-dark"><label>{{ form.code.label.text }}</label>{{ form.code(class='form-control',placeholder='例如 CV2026') }}{% for e in form.code.errors %}<small>{{ e }}</small>{% endfor %}</div>
+        <div class="form-floating-dark"><label>{{ form.name.label.text }}</label>{{ form.name(class='form-control',placeholder='课程名称') }}</div>
+        <div class="row g-3"><div class="col-6 form-floating-dark"><label>{{ form.teacher.label.text }}</label>{{ form.teacher(class='form-control',placeholder='教师') }}</div><div class="col-6 form-floating-dark"><label>{{ form.classroom.label.text }}</label>{{ form.classroom(class='form-control',placeholder='教室') }}</div></div>
+    </div><div class="modal-footer"><button type="button" class="btn btn-ghost" data-bs-dismiss="modal">取消</button>{{ form.submit(class='btn btn-primary') }}</div></form>
+</div></div></div>
+{% if form.errors %}<script>document.addEventListener('DOMContentLoaded',function(){new bootstrap.Modal(document.getElementById('course-modal')).show()})</script>{% endif %}
+{% endblock %}

@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+{% block title %}考勤任务 · FacePulse{% endblock %}
+{% block page_name %}考勤任务{% endblock %}
+{% block page_content %}
+<section class="hero-row compact-hero"><div><div class="eyebrow"><span></span>ATTENDANCE SESSION</div><h1>考勤任务</h1><p>每次课堂独立计算正常、迟到与缺勤，签到台会自动写入当前激活任务。</p></div><button class="kiosk-button" data-bs-toggle="modal" data-bs-target="#session-modal">＋ 新建任务</button></section>
+
+<div class="session-board">
+    <div class="session-board-head"><span>任务</span><span>课程 / 地点</span><span>签到时间窗</span><span>进度</span><span>状态</span><span>操作</span></div>
+    {% for item in sessions %}
+    {% set present = item.records|rejectattr('status','equalto','absent')|list|length %}
+    {% set total = item.course.enrollments|length %}
+    <article class="session-board-row {{ item.status }}">
+        <span class="session-name"><i>{{ loop.index|string if loop.index < 10 else loop.index }}</i><b><a href="{{ url_for('attendance_session_detail',session_id=item.id) }}">{{ item.title }}</a><small>#{{ item.id }} · {{ item.starts_at.strftime('%Y-%m-%d') }}</small></b></span>
+        <span><b>{{ item.course.name }}</b><small>{{ item.course.classroom or '教室待定' }}</small></span>
+        <span><b>{{ item.starts_at.strftime('%H:%M') }} — {{ item.ends_at.strftime('%H:%M') }}</b><small>{{ item.late_after.strftime('%H:%M') }} 后计迟到</small></span>
+        <span class="mini-progress"><b>{{ present }}/{{ total }}</b><i><em style="width:{{ (present / total * 100) if total else 0 }}%"></em></i></span>
+        <span><em class="session-status {{ item.status }}"><i></i>{{ {'scheduled':'待开始','active':'进行中','closed':'已结束'}.get(item.status,item.status) }}</em></span>
+        <span class="session-actions">
+            <a href="{{ url_for('attendance_session_detail',session_id=item.id) }}">详情</a>
+            {% if item.status != 'active' %}<form method="post" action="{{ url_for('activate_attendance_session',session_id=item.id) }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button type="submit">激活</button></form>{% endif %}
+            {% if item.status == 'active' %}<form method="post" action="{{ url_for('close_session',session_id=item.id) }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="danger" type="submit">结束</button></form>{% endif %}
+        </span>
+    </article>
+    {% else %}<div class="empty-row">暂无考勤任务，请先创建课程，再建立第一场课堂考勤。</div>{% endfor %}
+</div>
+
+<div class="modal fade" id="session-modal" tabindex="-1" aria-hidden="true"><div class="modal-dialog modal-dialog-centered"><div class="modal-content fp-modal"><form method="post">
+<div class="modal-header"><div><span>NEW ATTENDANCE</span><h2>创建考勤任务</h2></div><button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button></div>
+<div class="modal-body">{{ form.hidden_tag() }}
+<div class="form-floating-dark"><label>{{ form.course_id.label.text }}</label>{{ form.course_id(class='form-select') }}</div><div class="form-floating-dark"><label>{{ form.title.label.text }}</label>{{ form.title(class='form-control',placeholder='例如 第 8 周课堂考勤') }}</div>
+<div class="form-floating-dark"><label>{{ form.starts_at.label.text }}</label>{{ form.starts_at(class='form-control') }}</div><div class="row g-3"><div class="col-6 form-floating-dark"><label>{{ form.late_after.label.text }}</label>{{ form.late_after(class='form-control') }}</div><div class="col-6 form-floating-dark"><label>{{ form.ends_at.label.text }}</label>{{ form.ends_at(class='form-control') }}</div></div>
+{% for field, errors in form.errors.items() %}{% for error in errors %}<small class="form-error">{{ error }}</small>{% endfor %}{% endfor %}
+</div><div class="modal-footer"><a class="btn btn-ghost me-auto" href="{{ url_for('courses') }}">管理课程</a><button type="button" class="btn btn-ghost" data-bs-dismiss="modal">取消</button>{{ form.submit(class='btn btn-primary') }}</div></form></div></div></div>
+{% if form.errors %}<script>document.addEventListener('DOMContentLoaded',function(){new bootstrap.Modal(document.getElementById('session-modal')).show()})</script>{% endif %}
+{% endblock %}

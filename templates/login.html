@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>登录 - 人脸识别签到系统</title>
+    <link rel="stylesheet" type="text/css" href="{{ url_for('static', filename='vendor/bootstrap/bootstrap.min.css') }}">
+    <link rel="stylesheet" type="text/css" href="{{ url_for('static', filename='styles.css') }}">
+</head>
+<body class="auth-body">
+    <div class="auth-card">
+        <div class="auth-logo" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <circle cx="12" cy="8" r="3.2"/>
+                <path d="M5.5 16.5c1.5 2.3 3.8 3.4 6.5 3.4s5-1.1 6.5-3.4"/>
+                <path d="M3.5 4v2.5M3.5 4H1M20.5 4v2.5M20.5 4H23M3.5 20v-2.5M3.5 20H1M20.5 20v-2.5M20.5 20H23"/>
+            </svg>
+        </div>
+        <h1 class="auth-title">人脸识别签到系统</h1>
+        <p class="auth-subtitle">管理员登录</p>
+
+        {% with messages = get_flashed_messages(with_categories=true) %}
+            {% if messages %}
+                {% for category, message in messages %}
+                {% set alert_class = {'message': 'info', 'error': 'danger'}.get(category, category) %}
+                <div class="alert alert-{{ alert_class }} py-2 px-3 small rounded-3">{{ message }}</div>
+                {% endfor %}
+            {% endif %}
+        {% endwith %}
+
+        <form method="post" novalidate>
+            {{ form.hidden_tag() }}
+            <div class="mb-3">
+                <label class="form-label" for="username">账号</label>
+                {{ form.username(class="form-control", placeholder="请输入账号") }}
+                {% if form.username.errors %}
+                <div class="text-danger small mt-1">{{ form.username.errors[0] }}</div>
+                {% endif %}
+            </div>
+            <div class="mb-3">
+                <label class="form-label" for="password">密码</label>
+                {{ form.password(class="form-control", placeholder="请输入密码") }}
+                {% if form.password.errors %}
+                <div class="text-danger small mt-1">{{ form.password.errors[0] }}</div>
+                {% endif %}
+            </div>
+            <div class="mb-3 form-check">
+                {{ form.remember_me(class="form-check-input") }}
+                {{ form.remember_me.label(class="form-check-label") }}
+            </div>
+            {{ form.submit(class="btn btn-primary w-100") }}
+        </form>
+
+        <p class="text-center text-muted-2 small mt-3 mb-0">系统仅对管理员开放，请联系管理员获得权限</p>
+    </div>
+</body>
+</html>

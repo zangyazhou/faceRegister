@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+{% block title %}AI 识别中心 · FacePulse{% endblock %}
+{% block page_name %}AI 识别中心{% endblock %}
+{% block page_content %}
+<section class="hero-row compact-hero"><div><div class="eyebrow"><span></span>REAL-TIME AI OBSERVABILITY</div><h1>AI 实时识别中心</h1><p>把“识别很快”变成老师能直接看懂的质量、置信度、活体风险和端到端时延证据。</p></div><a class="kiosk-button" href="{{ url_for('web_sign_in') }}" target="_blank">打开摄像头签到台 ↗</a></section>
+
+<div class="ai-center-grid">
+<section class="ai-stage panel">
+    <div class="ai-stage-head"><span><i></i>识别服务实时监控</span><b>{{ dashboard.active_session.course if dashboard.active_session else '当前无活动考勤任务' }}</b></div>
+    <div class="ai-visual">
+        <div class="scan-grid"></div><div class="scan-line"></div>
+        <div class="face-target"><i class="corner c1"></i><i class="corner c2"></i><i class="corner c3"></i><i class="corner c4"></i><span>多人轨迹独立决策</span><small>TRACKING READY</small></div>
+        <div class="ai-floating top-left"><span>FACE DETECTOR</span><b>YuNet</b><small>多人脸检测 · ONNX</small></div>
+        <div class="ai-floating top-right"><span>FACE EMBEDDING</span><b>SFace</b><small>128-D 特征融合</small></div>
+        <div class="ai-floating bottom-left"><span>ANTI-SPOOF</span><b>MiniFASNetV2</b><small>静默活体 + 动态挑战</small></div>
+        <div class="ai-floating bottom-right"><span>END-TO-END P95</span><b data-live="p95">{{ dashboard.p95_latency }} ms</b><small>目标阈值 &lt; 200 ms</small></div>
+    </div>
+    <div class="ai-pipeline"><span class="done">检测<small>YuNet</small></span><i></i><span class="done">质量调度<small>Quality Gate</small></span><i></i><span class="done">身份识别<small>SFace</small></span><i></i><span class="done">活体判定<small>MiniFASNet</small></span><i></i><span class="done">考勤决策<small>Audit Event</small></span></div>
+</section>
+<aside class="ai-metrics">
+    <article class="panel model-health"><div class="panel-heading"><div><span class="panel-kicker">MODEL HEALTH</span><h2>模型健康度</h2></div><em><i></i>ONLINE</em></div>
+        <div class="health-item"><span><b>YuNet 人脸检测</b><small>检测与多人定位</small></span><em>正常</em></div><div class="health-item"><span><b>SFace 身份识别</b><small>时序特征融合</small></span><em>正常</em></div><div class="health-item"><span><b>MiniFASNetV2</b><small>照片攻击防护</small></span><em>正常</em></div>
+    </article>
+    <article class="panel live-metric-cards"><div><span>平均时延</span><b data-live="avg">{{ dashboard.avg_latency }}</b><small>ms</small></div><div><span>今日风险</span><b data-live="risk">{{ dashboard.risk_count_today }}</b><small>次阻断</small></div><div><span>签到人数</span><b data-live="signed">{{ dashboard.signed_count }}</b><small>/ {{ dashboard.total }}</small></div><div><span>出勤率</span><b data-live="rate">{{ dashboard.attendance_rate }}</b><small>%</small></div></article>
+</aside>
+</div>
+
+<section class="panel event-panel mt-3"><div class="panel-heading"><div><span class="panel-kicker">DECISION EVENT STREAM</span><h2>最终决策事件流</h2></div><span class="live-badge"><i></i>每 3 秒刷新</span></div><div class="event-table" id="live-event-table"></div></section>
+{% endblock %}
+{% block scripts %}<script>
+(function(){function label(v){return({success:'签到成功',duplicate:'重复签到',rejected:'风险阻断',unknown:'未识别'})[v]||v}function render(d){document.querySelector('[data-live="avg"]').textContent=d.avg_latency;document.querySelector('[data-live="p95"]').textContent=d.p95_latency+' ms';document.querySelector('[data-live="risk"]').textContent=d.risk_count_today;document.querySelector('[data-live="signed"]').textContent=d.signed_count;document.querySelector('[data-live="rate"]').textContent=d.attendance_rate;var h='<div class="event-row event-header"><span>识别对象</span><span>结果</span><span>质量 / 相似度</span><span>活体风险</span><span>时延</span><span>时间</span></div>';(d.recent_events||[]).slice(0,8).forEach(function(e){h+='<div class="event-row"><span class="event-person"><i>'+e.name.slice(0,1)+'</i><b>'+e.name+'<small>'+e.number+'</small></b></span><span><em class="outcome '+e.outcome+'">'+label(e.outcome)+'</em></span><span class="metric-pair"><b>'+Math.round((e.quality||0)*100)+'%</b><small>'+Number(e.similarity||0).toFixed(3)+'</small></span><span><em class="risk '+e.risk_level+'">'+e.risk_level+'</em></span><span class="latency-value">'+(e.latency_ms||'--')+'<small>ms</small></span><span class="event-time">'+e.time+'</span></div>'});document.getElementById('live-event-table').innerHTML=h}render({{ dashboard|tojson }});setInterval(function(){fetch('{{ url_for('dashboard_summary') }}').then(function(r){return r.json()}).then(render).catch(function(){})},3000)})();
+</script>{% endblock %}

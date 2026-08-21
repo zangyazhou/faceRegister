@@ -1,0 +1,146 @@
+{% extends "base.html" %}
+{% import "_form.html" as form_macros %}
+
+{% block title %}考勤统计 - 人脸识别签到系统{% endblock %}
+{% block page_name %}考勤分析{% endblock %}
+
+{% block page_content %}
+<div class="page-header">
+    <div>
+        <h2 class="page-title"><span class="dot"></span>考勤统计</h2>
+        <p class="page-subtitle">{{ target_date }} 当日出勤情况</p>
+    </div>
+    <form class="d-flex gap-2 align-items-center" method="get">
+        <input type="date" class="form-control" name="date" value="{{ target_date }}" style="width: 170px;">
+        <button class="btn btn-outline-secondary" type="submit">查询</button>
+    </form>
+</div>
+
+<div class="row g-3 mb-3">
+    <!-- 出勤率环形图 -->
+    <div class="col-md-3">
+        <div class="stat-card flex-column text-center">
+            <svg viewBox="0 0 120 120" width="110" height="110" role="img" aria-label="当日出勤率 {{ attendance_rate }}%">
+                <circle cx="60" cy="60" r="50" fill="none" stroke="#eef0f5" stroke-width="12"/>
+                <circle cx="60" cy="60" r="50" fill="none" stroke="#4f46e5" stroke-width="12"
+                        stroke-linecap="round" transform="rotate(-90 60 60)"
+                        stroke-dasharray="{{ 314.16 * attendance_rate / 100 }} 314.16"/>
+                <text x="60" y="56" text-anchor="middle" font-size="24" font-weight="800" fill="#1e293b">{{ '%g' % attendance_rate }}%</text>
+                <text x="60" y="76" text-anchor="middle" font-size="10" fill="#64748b">出勤率</text>
+            </svg>
+            <div class="stat-label mt-2">当日出勤率</div>
+        </div>
+    </div>
+
+    <!-- 已签到 -->
+    <div class="col-md-3">
+        <div class="stat-card">
+            <span class="stat-icon green">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg>
+            </span>
+            <div>
+                <div class="stat-value">{{ signed_count }}</div>
+                <div class="stat-label">人已签到</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 未签到 -->
+    <div class="col-md-3">
+        <div class="stat-card">
+            <span class="stat-icon red">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6L6 18M6 6l12 12"/></svg>
+            </span>
+            <div>
+                <div class="stat-value">{{ total - signed_count }}</div>
+                <div class="stat-label">人未签到</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 总数 -->
+    <div class="col-md-3">
+        <div class="stat-card">
+            <span class="stat-icon indigo">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H7a4 4 0 0 0-4 4v2"/><circle cx="10" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+            </span>
+            <div>
+                <div class="stat-value">{{ total }}</div>
+                <div class="stat-label">名学生总数</div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 近 7 日出勤趋势 -->
+<div class="card mb-4">
+    <div class="card-header">近 7 日出勤趋势</div>
+    <div class="card-body">
+        {% set max_count = attendance_trend | map(attribute='count') | max %}
+        {% if max_count < 1 %}{% set max_count = 1 %}{% endif %}
+        <svg viewBox="0 0 560 220" width="100%" style="max-height: 260px;" role="img" aria-label="近 7 日出勤趋势柱状图">
+            <!-- 横向网格线（recessive） -->
+            {% for gy in [30, 90, 150] %}
+            <line x1="10" y1="{{ gy }}" x2="550" y2="{{ gy }}" stroke="#eef0f5" stroke-width="1"/>
+            {% endfor %}
+            <!-- 柱子 -->
+            {% for item in attendance_trend %}
+                {% set bar_h = (item.count / max_count * 150) | int %}
+                {% set bar_x = 10 + loop.index0 * 78 %}
+                {% set bar_y = 180 - bar_h %}
+                {% if bar_h > 0 %}
+                <rect x="{{ bar_x }}" y="{{ bar_y }}" width="48" height="{{ bar_h }}" rx="4"
+                      fill="{% if loop.last %}#4338ca{% else %}#4f46e5{% endif %}" opacity="{% if loop.last %}1{% else %}0.88{% endif %}"/>
+                {% endif %}
+                <text x="{{ bar_x + 24 }}" y="{{ bar_y - 6 }}" text-anchor="middle" font-size="12" font-weight="600"
+                      fill="{% if item.count > 0 %}#1e293b{% else %}#94a3b8{% endif %}">{{ item.count }}</text>
+                <text x="{{ bar_x + 24 }}" y="200" text-anchor="middle" font-size="11" fill="#64748b">{{ item.date }}</text>
+                <text x="{{ bar_x + 24 }}" y="214" text-anchor="middle" font-size="10" fill="#94a3b8">{{ item.weekday }}</text>
+            {% endfor %}
+        </svg>
+    </div>
+</div>
+
+<div class="card">
+    <div class="card-body">
+        <div class="table-responsive">
+            <table class="table table-hover align-middle">
+                <thead>
+                    <tr>
+                        <th>学号</th>
+                        <th>姓名</th>
+                        <th>当日状态</th>
+                    </tr>
+                </thead>
+                <tbody>
+                {% for s in students %}
+                    <tr>
+                        <td class="text-muted-2">{{ s.number }}</td>
+                        <td>
+                            <div class="d-flex align-items-center gap-2">
+                                <span class="user-avatar" style="width:28px;height:28px;font-size:.72rem;">{{ s.username[:1] }}</span>
+                                <span class="fw-semibold">{{ s.username }}</span>
+                            </div>
+                        </td>
+                        <td>
+                            {% if s.is_signed %}
+                            <span class="badge badge-soft-success">已签到</span>
+                            {% else %}
+                            <span class="badge badge-soft-danger">未签到</span>
+                            {% endif %}
+                        </td>
+                    </tr>
+                {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<div class="card mt-4">
+    <div class="card-header">手动补签</div>
+    <div class="card-body p-4">
+        {{ form_macros.quick_form(form, action=url_for('sign_in_manual')) }}
+    </div>
+</div>
+{% endblock %}

@@ -1,0 +1,270 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>人脸签到</title>
+    <link rel="stylesheet" type="text/css" href="{{ url_for('static', filename='vendor/bootstrap/bootstrap.min.css') }}">
+    <link rel="stylesheet" type="text/css" href="{{ url_for('static', filename='styles.css') }}">
+</head>
+<body class="signin-body">
+    <div class="signin-wrap">
+        <header class="signin-header">
+            <span class="brand-logo" aria-hidden="true">
+                <svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <circle cx="12" cy="8" r="3.2"/>
+                    <path d="M5.5 16.5c1.5 2.3 3.8 3.4 6.5 3.4s5-1.1 6.5-3.4"/>
+                    <path d="M3.5 4v2.5M3.5 4H1M20.5 4v2.5M20.5 4H23M3.5 20v-2.5M3.5 20H1M20.5 20v-2.5M20.5 20H23"/>
+                </svg>
+            </span>
+            <div>
+                <h1 class="signin-title">人脸签到</h1>
+                <p class="signin-subtitle">请正对摄像头，系统将自动识别并完成签到</p>
+            </div>
+        </header>
+
+        <div class="signin-stage">
+            <video id="video" autoplay muted playsinline></video>
+            <canvas id="overlay"></canvas>
+        </div>
+
+        <input type="hidden" id="csrf-token" value="{{ csrf_token() }}">
+        <canvas id="capture" style="display: none;"></canvas>
+
+        <div class="signin-status mt-3" id="status-box">
+            <div class="spinner-border spinner-border-sm" id="status-spinner"></div>
+            <div class="min-w-0">
+                <h5 class="status-title" id="status-text">正在打开摄像头...</h5>
+                <div class="status-detail" id="status-detail"></div>
+            </div>
+        </div>
+
+        <ul class="hint-list signin-hints">
+            <li><span class="hint-num">1</span>正对摄像头，保持光线充足</li>
+            <li><span class="hint-num">2</span>系统仅在需要时提示一次随机动作，请按人脸框提示操作</li>
+            <li><span class="hint-num">3</span>支持多人同时识别，每人当日只签到一次</li>
+        </ul>
+    </div>
+
+    <script>
+    'use strict';
+    (function () {
+        var CSRF_TOKEN = document.getElementById('csrf-token').value;
+        // 最多约 10fps；inFlight + 二进制 JPEG 保证不产生旧帧队列。
+        var CAPTURE_INTERVAL_MS = 100;
+        var STATUS_HOLD_MS = 2500;
+        var BOX_MISS_HOLD_MS = 450;
+        var BOX_SMOOTHING = 0.35;
+
+        var video = document.getElementById('video');
+        var capture = document.getElementById('capture');
+        var cctx = capture.getContext('2d');
+        var overlay = document.getElementById('overlay');
+        var octx = overlay.getContext('2d');
+        var statusBox = document.getElementById('status-box');
+        var statusText = document.getElementById('status-text');
+        var statusDetail = document.getElementById('status-detail');
+        var spinner = document.getElementById('status-spinner');
+
+        var statusHoldUntil = 0;
+        var inFlight = false;
+        var lastFacesDrawnAt = 0;
+        var smoothedBoxes = Object.create(null);
+
+        function setStatus(text, detail, ok) {
+            statusText.textContent = text;
+            statusDetail.textContent = detail || '';
+            statusBox.classList.remove('success', 'error');
+            statusText.classList.remove('text-success', 'text-danger');
+            spinner.style.display = 'none';
+            if (ok === true) { statusBox.classList.add('success'); statusText.classList.add('text-success'); }
+            else if (ok === false) { statusBox.classList.add('error'); statusText.classList.add('text-danger'); }
+            else spinner.style.display = '';
+        }
+
+        // 在 overlay 上画人脸框（视频 CSS 镜像显示，需翻转 x 坐标），支持多人 + 名字标签
+        function drawFaces(faces) {
+            if (!overlay.width) return;
+            octx.clearRect(0, 0, overlay.width, overlay.height);
+            var activeTracks = Object.create(null);
+            for (var i = 0; i < faces.length; i++) {
+                var f = faces[i];
+                var box = f.face_box;
+                if (!box) continue;
+                var trackKey = String(f.track_id || ('face-' + i));
+                activeTracks[trackKey] = true;
+                var target = {
+                    x: overlay.width - box.x - box.w,
+                    y: box.y,
+                    w: box.w,
+                    h: box.h
+                };
+                var previous = smoothedBoxes[trackKey];
+                if (previous) {
+                    target.x = previous.x + (target.x - previous.x) * BOX_SMOOTHING;
+                    target.y = previous.y + (target.y - previous.y) * BOX_SMOOTHING;
+                    target.w = previous.w + (target.w - previous.w) * BOX_SMOOTHING;
+                    target.h = previous.h + (target.h - previous.h) * BOX_SMOOTHING;
+                }
+                smoothedBoxes[trackKey] = target;
+                var x = target.x;
+                var live = f.liveness || {};
+                var color = !f.name ? '#f59e0b' :
+                    (f.ambiguous_identity ? '#ef4444' :
+                    (live.blocked ? '#ef4444' :
+                    (live.passed ? '#10b981' : '#4f46e5')));
+                octx.strokeStyle = color;
+                octx.lineWidth = 3;
+                octx.strokeRect(x, target.y, target.w, target.h);
+                if (f.name) {
+                    var progress;
+                    if (f.ambiguous_identity) progress = '同一身份重复，请移开照片或屏幕';
+                    else if (f.quality_pending) progress = '请正对镜头并保持光线充足';
+                    else if (live.mode === 'evaluating') progress = '无感活体检测 ' +
+                        (live.passive_samples || 0) + '/2';
+                    else if (live.mode === 'rejected') progress = '疑似照片或屏幕攻击';
+                    else if (live.mode === 'passive') progress = '无感活体已通过';
+                    else if (live.challenge === 'blink' && !live.blink) progress = '请眨眼一次';
+                    else if (live.challenge === 'head_turn' && !live.head_turn) progress = '请轻微转头一次';
+                    else if (!live.challenge && !live.blink) progress = '请眨眼';
+                    else if (!live.challenge && !live.head_turn) progress = '请轻微左右转头';
+                    else if ((f.votes || 0) < (f.votes_required || 1)) {
+                        progress = '身份确认 ' + (f.votes || 0) + '/' + (f.votes_required || 1);
+                    } else progress = f.completed ? '已完成' : '活体已通过';
+                    var label = f.name + ' · ' + progress;
+                    var labelH = 26;
+                    octx.font = 'bold 15px sans-serif';
+                    var labelW = Math.min(overlay.width - x,
+                        Math.max(target.w, Math.ceil(octx.measureText(label).width) + 16));
+                    octx.fillStyle = color;
+                    octx.fillRect(x, Math.max(0, target.y - labelH), labelW, labelH);
+                    octx.fillStyle = '#fff';
+                    octx.fillText(label, x + 8, target.y - 8);
+                }
+            }
+            Object.keys(smoothedBoxes).forEach(function (key) {
+                if (!activeTracks[key]) delete smoothedBoxes[key];
+            });
+            if (faces.length) lastFacesDrawnAt = performance.now();
+        }
+        function clearBox(force) {
+            // 短暂漏检时保留上一帧框，避免框在相邻响应之间闪烁。
+            if (!force && performance.now() - lastFacesDrawnAt < BOX_MISS_HOLD_MS) return;
+            if (overlay.width) octx.clearRect(0, 0, overlay.width, overlay.height);
+            smoothedBoxes = Object.create(null);
+        }
+
+        async function init() {
+            if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+                setStatus('当前浏览器不支持摄像头', '请用 Chrome / Edge / Firefox，并通过 http://127.0.0.1 或 HTTPS 访问', false);
+                return;
+            }
+            try {
+                var stream = await navigator.mediaDevices.getUserMedia({
+                    video: { width: { ideal: 480 }, height: { ideal: 360 } },
+                    audio: false
+                });
+                video.srcObject = stream;
+                await video.play();
+            } catch (err) {
+                if (err.name === 'NotAllowedError') setStatus('摄像头权限被拒绝', '请在浏览器地址栏允许本页使用摄像头', false);
+                else if (err.name === 'NotFoundError') setStatus('未检测到摄像头设备', '请检查摄像头连接后刷新重试', false);
+                else setStatus('摄像头打开失败', err.name + '：' + err.message, false);
+                return;
+            }
+            setStatus('识别中，请正对摄像头', '系统将自动识别');
+            setInterval(captureAndSend, CAPTURE_INTERVAL_MS);
+        }
+
+        async function captureAndSend() {
+            if (inFlight) return;
+            if (!video.videoWidth) return;
+
+            // 截帧（原始帧，不镜像）
+            if (capture.width !== video.videoWidth || capture.height !== video.videoHeight) {
+                capture.width = video.videoWidth;
+                capture.height = video.videoHeight;
+            }
+            // 修改 canvas.width/height 会隐式清空画布。只有分辨率真的变化时
+            // 才调整 overlay，避免每次请求都让人脸框消失再出现。
+            if (overlay.width !== video.videoWidth || overlay.height !== video.videoHeight) {
+                overlay.width = video.videoWidth;
+                overlay.height = video.videoHeight;
+                smoothedBoxes = Object.create(null);
+            }
+            cctx.drawImage(video, 0, 0, capture.width, capture.height);
+            var jpeg = await new Promise(function (resolve) {
+                capture.toBlob(resolve, 'image/jpeg', 0.78);
+            });
+            if (!jpeg) return;
+
+            inFlight = true;
+            var data;
+            try {
+                var resp = await fetch('/api/sign-in-image', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'image/jpeg', 'X-CSRFToken': CSRF_TOKEN },
+                    body: jpeg
+                });
+                data = await resp.json().catch(function () { return { status: 'error', message: '服务器响应异常（HTTP ' + resp.status + '）' }; });
+            } catch (e) {
+                setStatus('网络错误', '无法连接服务器，请检查服务是否在运行', false);
+                inFlight = false;
+                return;
+            }
+            inFlight = false;
+
+            if (data.status === 'multi') {
+                drawFaces(data.faces || []);
+                if (data.signed && data.signed.length > 0) {
+                    var newSigned = data.signed.filter(function (s) { return !s.duplicate; });
+                    var duplicates = data.signed.filter(function (s) { return s.duplicate; });
+                    if (newSigned.length > 0) {
+                        var names = newSigned.map(function (s) { return s.name; }).join('、');
+                        setStatus('签到成功：' + names,
+                                  newSigned[0].sign_time || '', true);
+                    } else {
+                        var duplicateNames = duplicates.map(function (s) { return s.name; }).join('、');
+                        setStatus('今日已签到：' + duplicateNames, '无需重复签到');
+                    }
+                    // 其它人的识别不中断，只短暂保留本次结果提示。
+                    statusHoldUntil = performance.now() + STATUS_HOLD_MS;
+                } else if (performance.now() < statusHoldUntil) {
+                    return;
+                } else if (data.faces && data.faces.some(function (f) { return f.name; })) {
+                    var rec = data.faces.filter(function (f) { return f.name; })
+                        .map(function (f) {
+                            var live = f.liveness || {};
+                            if (f.ambiguous_identity) return f.name + '：同一身份重复';
+                            if (f.quality_pending) return f.name + '：请改善光线或姿态';
+                            if (live.mode === 'evaluating') return f.name + '：正在无感活体检测';
+                            if (live.mode === 'rejected') return f.name + '：疑似照片或屏幕攻击';
+                            if (live.mode === 'passive') return f.name + '：无感活体已通过';
+                            if (live.challenge === 'blink' && !live.blink) return f.name + '：请眨眼一次';
+                            if (live.challenge === 'head_turn' && !live.head_turn) return f.name + '：请轻微转头一次';
+                            if (!live.challenge && !live.blink) return f.name + '：请眨眼';
+                            if (!live.challenge && !live.head_turn) return f.name + '：请轻微左右转头';
+                            return f.name + '：身份确认 ' + (f.votes || 0) + '/' +
+                                   (f.votes_required || 1);
+                        }).join('；');
+                    setStatus('多人识别中', rec);
+                } else {
+                    setStatus('未识别到已注册学生', '陌生人不会影响同框中的已注册学生');
+                }
+            } else if (data.code === 'NO_FACE') {
+                setStatus('识别中，请正对摄像头', '未检测到人脸');
+                clearBox();
+            } else if (data.code === 'EMPTY_DATABASE') {
+                setStatus('系统暂无已录入人脸', '请联系管理员');
+                clearBox(true);
+            } else {
+                setStatus('识别出错', data.message || '未知错误', false);
+                clearBox(true);
+            }
+        }
+
+        init();
+    })();
+    </script>
+</body>
+</html>

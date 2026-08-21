@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#07111f">
+    <title>{% block title %}智能考勤决策平台{% endblock %}</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='vendor/bootstrap/bootstrap.min.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='admin.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='admin-light.css') }}">
+    {% block head %}{% endblock %}
+</head>
+<body class="{{ 'admin-body' if current_user.is_authenticated else '' }}">
+{% if current_user.is_authenticated %}
+{% set ep = request.endpoint or '' %}
+{% set demo_mode = session.get('demo_mode', false) %}
+<div class="app-shell">
+    <div class="sidebar-backdrop" id="sidebar-backdrop"></div>
+    <aside class="admin-sidebar" id="admin-sidebar">
+        <a class="sidebar-brand" href="{{ url_for('index') }}">
+            <span class="brand-mark" aria-hidden="true">
+                <svg viewBox="0 0 28 28" fill="none"><path d="M7 4H5a2 2 0 0 0-2 2v3M21 4h2a2 2 0 0 1 2 2v3M7 24H5a2 2 0 0 1-2-2v-3M21 24h2a2 2 0 0 0 2-2v-3" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><circle cx="14" cy="11" r="4" stroke="currentColor" stroke-width="2"/><path d="M7.5 21c1.6-3.4 3.8-5 6.5-5s4.9 1.6 6.5 5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+            </span>
+            <span><strong>FacePulse</strong><small>智能考勤决策平台</small></span>
+        </a>
+
+        <div class="sidebar-mode {{ 'demo' if demo_mode }}">
+            <span class="mode-dot"></span>
+            <span><small>当前数据空间</small><strong>{{ '演示数据' if demo_mode else '真实数据' }}</strong></span>
+            <form method="post" action="{{ url_for('toggle_demo_mode') }}">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <input type="hidden" name="enabled" value="{{ '0' if demo_mode else '1' }}">
+                <button type="submit" title="切换数据空间">切换</button>
+            </form>
+        </div>
+
+        <nav class="sidebar-nav" aria-label="管理导航">
+            <span class="nav-section">运营总览</span>
+            <a class="sidebar-link {{ 'active' if ep == 'index' }}" href="{{ url_for('index') }}">
+                <svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="2"/><rect x="14" y="3" width="7" height="7" rx="2"/><rect x="3" y="14" width="7" height="7" rx="2"/><rect x="14" y="14" width="7" height="7" rx="2"/></svg>
+                <span>数据驾驶舱</span>
+            </a>
+            <a class="sidebar-link {{ 'active' if ep == 'recognition_center' }}" href="{{ url_for('recognition_center') }}">
+                <svg viewBox="0 0 24 24"><path d="M4 8V6a2 2 0 0 1 2-2h2M16 4h2a2 2 0 0 1 2 2v2M20 16v2a2 2 0 0 1-2 2h-2M8 20H6a2 2 0 0 1-2-2v-2"/><circle cx="12" cy="10" r="3"/><path d="M7.5 17c1.2-2.5 2.7-3.7 4.5-3.7s3.3 1.2 4.5 3.7"/></svg>
+                <span>AI 识别中心</span><i class="live-pulse"></i>
+            </a>
+
+            <span class="nav-section">考勤业务</span>
+            <a class="sidebar-link {{ 'active' if ep == 'attendance_sessions' }}" href="{{ url_for('attendance_sessions') }}">
+                <svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="17" rx="3"/><path d="M8 2v4M16 2v4M3 9h18M8 13h3M8 17h7"/></svg>
+                <span>考勤任务</span>
+            </a>
+            <a class="sidebar-link {{ 'active' if ep == 'courses' }}" href="{{ url_for('courses') }}">
+                <svg viewBox="0 0 24 24"><path d="m3 7 9-4 9 4-9 4-9-4Z"/><path d="M7 9.5V15c0 1.7 2.2 3 5 3s5-1.3 5-3V9.5M21 7v7"/></svg>
+                <span>课程与班级</span>
+            </a>
+            <a class="sidebar-link {{ 'active' if ep == 'students' or ep in ['add_user','edit_user'] }}" href="{{ url_for('students') }}">
+                <svg viewBox="0 0 24 24"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M19 8v6M22 11h-6"/></svg>
+                <span>学生与人脸库</span>
+            </a>
+            <a class="sidebar-link {{ 'active' if ep == 'sign_ins' }}" href="{{ url_for('sign_ins') }}">
+                <svg viewBox="0 0 24 24"><path d="M16 4h2a2 2 0 0 1 2 2v14H4V6a2 2 0 0 1 2-2h2"/><rect x="8" y="2" width="8" height="5" rx="1"/><path d="m8 13 2 2 5-5"/></svg>
+                <span>签到记录</span>
+            </a>
+
+            <span class="nav-section">分析与安全</span>
+            <a class="sidebar-link {{ 'active' if ep == 'experiments' }}" href="{{ url_for('experiments') }}">
+                <svg viewBox="0 0 24 24"><path d="M9 3h6M10 3v5l-5.5 9.5A2.3 2.3 0 0 0 6.5 21h11a2.3 2.3 0 0 0 2-3.5L14 8V3"/><path d="M7.5 15h9M9 18h.01M13 17h.01"/></svg>
+                <span>算法实验中心</span>
+            </a>
+            <a class="sidebar-link {{ 'active' if ep == 'sign_ins_statistics' }}" href="{{ url_for('sign_ins_statistics') }}">
+                <svg viewBox="0 0 24 24"><path d="M4 19V9M10 19V5M16 19v-7M22 19H2"/></svg>
+                <span>考勤分析</span>
+            </a>
+            <a class="sidebar-link {{ 'active' if ep == 'risk_events' }}" href="{{ url_for('risk_events') }}">
+                <svg viewBox="0 0 24 24"><path d="M12 3 3.5 7v5c0 5 3.6 8.1 8.5 9 4.9-.9 8.5-4 8.5-9V7L12 3Z"/><path d="M12 8v5M12 17h.01"/></svg>
+                <span>风险事件</span>
+            </a>
+        </nav>
+
+        <div class="sidebar-footer">
+            <div class="model-mini">
+                <span class="model-icon">AI</span>
+                <span><strong>识别引擎在线</strong><small>YuNet · SFace · MiniFASNet</small></span>
+                <i></i>
+            </div>
+            <div class="sidebar-user">
+                <span class="user-avatar">{{ current_user.username[:1] }}</span>
+                <span><strong>{{ current_user.username }}</strong><small>系统管理员</small></span>
+                <form method="post" action="{{ url_for('logout') }}">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <button type="submit" title="退出登录"><svg viewBox="0 0 24 24"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9"/></svg></button>
+                </form>
+            </div>
+        </div>
+    </aside>
+
+    <div class="admin-main">
+        <header class="admin-topbar">
+            <button class="mobile-menu" id="mobile-menu" aria-label="打开导航"><span></span><span></span><span></span></button>
+            <div class="topbar-context">
+                <span>智能考勤中心</span>
+                <i>/</i>
+                <strong>{% block page_name %}数据驾驶舱{% endblock %}</strong>
+            </div>
+            <div class="topbar-actions">
+                {% if demo_mode %}<span class="demo-watermark"><i></i>演示数据</span>{% endif %}
+                <span class="system-online"><i></i>系统运行正常</span>
+                <a class="kiosk-button" href="{{ url_for('web_sign_in') }}" target="_blank">
+                    <svg viewBox="0 0 24 24"><path d="M4 8V6a2 2 0 0 1 2-2h2M16 4h2a2 2 0 0 1 2 2v2M20 16v2a2 2 0 0 1-2 2h-2M8 20H6a2 2 0 0 1-2-2v-2"/></svg>
+                    打开签到台
+                </a>
+            </div>
+        </header>
+
+        <main class="admin-content">
+            {% with messages = get_flashed_messages(with_categories=true) %}
+                {% if messages %}
+                    <div class="flash-stack">
+                    {% for category, message in messages %}
+                        {% set alert_class = {'message': 'info', 'error': 'danger'}.get(category, category) %}
+                        <div class="alert alert-{{ alert_class }} alert-dismissible fade show" role="alert">
+                            {{ message }}
+                            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="关闭"></button>
+                        </div>
+                    {% endfor %}
+                    </div>
+                {% endif %}
+            {% endwith %}
+            {% block page_content %}{% endblock %}
+        </main>
+    </div>
+</div>
+{% else %}
+<main>
+    {% with messages = get_flashed_messages(with_categories=true) %}
+        {% for category, message in messages %}
+        <div class="alert alert-{{ category }} m-3">{{ message }}</div>
+        {% endfor %}
+    {% endwith %}
+    {{ self.page_content() }}
+</main>
+{% endif %}
+
+<script src="{{ url_for('static', filename='vendor/bootstrap/bootstrap.bundle.min.js') }}"></script>
+<script>
+(function () {
+    var button = document.getElementById('mobile-menu');
+    var sidebar = document.getElementById('admin-sidebar');
+    var backdrop = document.getElementById('sidebar-backdrop');
+    if (!button || !sidebar) return;
+    function toggle(open) {
+        sidebar.classList.toggle('open', open);
+        backdrop.classList.toggle('show', open);
+        document.body.classList.toggle('menu-open', open);
+    }
+    button.addEventListener('click', function () { toggle(!sidebar.classList.contains('open')); });
+    backdrop.addEventListener('click', function () { toggle(false); });
+})();
+</script>
+{% block scripts %}{% endblock %}
+</body>
+</html>

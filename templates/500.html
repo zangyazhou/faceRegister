@@ -1,0 +1,14 @@
+{% extends "base.html" %}
+
+{% block title %}服务器错误 - 人脸识别签到系统{% endblock %}
+
+{% block page_content %}
+<div class="text-center" style="padding: 5rem 1rem;">
+    <div class="auth-logo" style="margin: 0 auto 1.5rem;">
+        <svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 9v4M12 17h.01"/><path d="M10.3 3.9L1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/></svg>
+    </div>
+    <h1 class="display-3 fw-bold" style="background: var(--gradient); -webkit-background-clip: text; background-clip: text; color: transparent;">500</h1>
+    <p class="text-muted-2 mb-3">服务器内部错误，请稍后再试</p>
+    <a class="btn btn-primary" href="{{ url_for('index') }}">返回主页</a>
+</div>
+{% endblock %}

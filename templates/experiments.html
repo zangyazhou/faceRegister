@@ -1,0 +1,55 @@
+{% extends "base.html" %}
+{% block title %}算法实验中心 · FacePulse{% endblock %}
+{% block page_name %}算法实验中心{% endblock %}
+
+{% block page_content %}
+<section class="hero-row compact-hero">
+    <div><div class="eyebrow"><span></span>MODEL EVIDENCE LAB</div><h1>算法实验与性能评估</h1><p>所有指标直接读取可复现实验产物；已完成、样本受限和待补实验严格分开，避免把演示数据当成论文结论。</p></div>
+    {% if experiment %}<span class="evidence-fresh"><i></i>最近评估 {{ experiment.identity.generated_at.replace('T',' ') }}</span>{% endif %}
+</section>
+
+{% if experiment %}
+{% set perf = experiment.performance %}{% set identity = experiment.identity %}
+<div class="evidence-caveat"><span>!</span><div><b>当前准确性结果属于功能性小样本基线</b><p>仅 {{ identity.dataset.registered_identities }} 个注册身份、{{ identity.dataset.positive_samples }} 个本人正样本和 {{ identity.dataset.negative_samples }} 个陌生人负样本；100% 不能外推为真实班级准确率。</p></div><em>论文需披露</em></div>
+
+<section class="experiment-kpis">
+    <article><span class="exp-icon speed">×</span><div><small>中位性能提升</small><b>{{ perf.speedup }}<em>×</em></b><p>dlib → YuNet + SFace</p></div></article>
+    <article><span class="exp-icon latency">ms</span><div><small>高速流水线中位耗时</small><b>{{ perf.opencv.median }}<em>ms</em></b><p>{{ perf.samples }} 个图像样本</p></div></article>
+    <article><span class="exp-icon p95">P95</span><div><small>高速流水线 P95</small><b>{{ perf.opencv.p95 }}<em>ms</em></b><p>最长边缩放至 640px</p></div></article>
+    <article><span class="exp-icon accuracy">%</span><div><small>SFace Rank-1</small><b>{{ '%.0f'|format(identity.metrics.rank1*100) }}<em>%</em></b><p>仅功能验证，不代表泛化</p></div></article>
+    <article><span class="exp-icon far">FAR</span><div><small>陌生人误接受率</small><b>{{ '%.1f'|format(identity.metrics.far*100) }}<em>%</em></b><p>@ 余弦阈值 {{ identity.threshold }}</p></div></article>
+    <article><span class="exp-icon frr">FRR</span><div><small>本人误拒绝率</small><b>{{ '%.1f'|format(identity.metrics.frr*100) }}<em>%</em></b><p>@ 余弦阈值 {{ identity.threshold }}</p></div></article>
+</section>
+
+<section class="experiment-grid exp-main-grid">
+    <article class="panel chart-panel"><div class="panel-heading"><div><span class="panel-kicker">PIPELINE BENCHMARK</span><h2>dlib 与高速流水线耗时对比</h2></div><span class="panel-chip">{{ perf.samples }} samples</span></div><div id="pipeline-benchmark" class="experiment-chart"></div></article>
+    <article class="panel experiment-context"><div class="panel-heading"><div><span class="panel-kicker">BENCHMARK CONTEXT</span><h2>实验环境与结论</h2></div><span class="completed-chip">已完成</span></div>
+        <dl><div><dt>处理器</dt><dd>{{ perf.environment.cpu }}</dd></div><div><dt>操作系统</dt><dd>{{ perf.environment.system }}</dd></div><div><dt>Python / OpenCV</dt><dd>{{ perf.environment.python }} / {{ perf.environment.opencv }}</dd></div><div><dt>图像规模</dt><dd>15 张图片 × 3 次，共 {{ perf.samples }} 样本</dd></div></dl>
+        <div class="experiment-conclusion"><span>结论</span><p>YuNet + SFace 的中位耗时从 {{ perf.dlib.median }}ms 降至 {{ perf.opencv.median }}ms，下降 {{ '%.1f'|format((1-perf.opencv.median/perf.dlib.median)*100) }}%；同时检出 {{ perf.opencv.faces }}/45 张人脸。</p></div>
+        <small class="source-line">来源：{{ perf.source }}</small>
+    </article>
+</section>
+
+<section class="experiment-grid exp-score-grid">
+    <article class="panel chart-panel"><div class="panel-heading"><div><span class="panel-kicker">OPEN-SET SEPARATION</span><h2>SFace 本人与陌生人相似度分布</h2></div><span class="panel-chip good">阈值 {{ identity.threshold }}</span></div><div id="score-distribution" class="experiment-chart"></div><div class="chart-caption">分离间隔：最低本人相似度 {{ '%.3f'|format(identity.score_summary.genuine_min) }} − 最高陌生人相似度 {{ '%.3f'|format(identity.score_summary.impostor_max) }} = <b>{{ '%.3f'|format(identity.score_summary.separation) }}</b></div></article>
+    <article class="panel chart-panel"><div class="panel-heading"><div><span class="panel-kicker">THRESHOLD TRADE-OFF</span><h2>阈值变化下的 FAR / FRR</h2></div><span class="panel-chip">余弦相似度</span></div><div id="threshold-curve" class="experiment-chart"></div><div class="chart-caption">阈值越高越安全但更容易拒绝本人；当前 0.40 在本小样本上 FAR、FRR 均为 0。</div></article>
+</section>
+
+<section class="panel evidence-panel"><div class="panel-heading"><div><span class="panel-kicker">EVIDENCE COMPLETENESS</span><h2>论文实验完成度矩阵</h2></div><span class="panel-chip">真实状态</span></div><div class="evidence-table">
+    <div class="evidence-row evidence-head"><span>实验</span><span>状态</span><span>数据来源</span><span>当前结论</span></div>
+    {% for item in experiment.evidence_matrix %}<div class="evidence-row"><span><b>{{ item.name }}</b></span><span><em class="evidence-status {{ item.status }}">{{ {'completed':'已完成','limited':'样本受限','pending':'待补实验'}[item.status] }}</em></span><span>{{ item.source }}</span><span>{{ item.result }}</span></div>{% endfor %}
+</div></section>
+
+<section class="experiment-grid exp-definition-grid">
+    <article class="panel metric-definitions"><div class="panel-heading"><div><span class="panel-kicker">METRIC DEFINITIONS</span><h2>指标口径</h2></div></div><div class="definition-list"><div><b>FAR</b><span>陌生人被错误接受的数量 ÷ 陌生人样本总数</span></div><div><b>FRR</b><span>本人被错误拒绝的数量 ÷ 本人正样本总数</span></div><div><b>Rank-1</b><span>最近候选身份正确的正样本数量 ÷ 正样本总数</span></div><div><b>P95</b><span>95% 的推理样本耗时不超过该值</span></div></div></article>
+    <article class="panel source-manifest"><div class="panel-heading"><div><span class="panel-kicker">SOURCE MANIFEST</span><h2>证据来源</h2></div></div>{% for source in experiment.sources %}<div><span><b>{{ source.name }}</b><small>{{ source.path }}</small></span><em>{{ source.updated_at or '未找到' }}</em></div>{% endfor %}</article>
+</section>
+{% else %}<div class="panel empty-wide"><span>!</span><h2>实验产物尚不可用</h2><p>请先运行 scripts/evaluate_sface.py 并检查性能基线文档。</p></div>{% endif %}
+{% endblock %}
+
+{% block scripts %}{% if experiment %}<script src="{{ url_for('static',filename='vendor/echarts/echarts.min.js') }}"></script><script>
+(function(){var d={{ experiment|tojson }},ink='#24364b',muted='#7b8da1',grid='rgba(129,149,171,.18)',charts=[];function make(id,opt){var c=echarts.init(document.getElementById(id));c.setOption(opt);charts.push(c)}var tooltip={backgroundColor:'#fff',borderColor:'#dce5ee',textStyle:{color:ink},extraCssText:'box-shadow:0 8px 24px rgba(36,54,75,.10);'};
+make('pipeline-benchmark',{tooltip:Object.assign({trigger:'axis'},tooltip),legend:{top:2,textStyle:{color:muted}},grid:{left:55,right:20,top:48,bottom:34},xAxis:{type:'category',data:['中位耗时','P95','平均耗时'],axisLabel:{color:muted},axisLine:{lineStyle:{color:grid}}},yAxis:{type:'value',name:'毫秒',nameTextStyle:{color:muted},axisLabel:{color:muted},splitLine:{lineStyle:{color:grid}}},series:[{name:'dlib HOG + ResNet',type:'bar',barMaxWidth:30,data:[d.performance.dlib.median,d.performance.dlib.p95,d.performance.dlib.mean],itemStyle:{color:'#9fb0c1',borderRadius:[6,6,0,0]}},{name:'YuNet + SFace',type:'bar',barMaxWidth:30,data:[d.performance.opencv.median,d.performance.opencv.p95,d.performance.opencv.mean],itemStyle:{color:'#3478f6',borderRadius:[6,6,0,0]}}]});
+var genuine=d.identity.scores.genuine.map(function(v,i){return [v,'本人正样本',i+1]}),impostor=d.identity.scores.impostor.map(function(v,i){return [v,'陌生人负样本',i+1]});make('score-distribution',{tooltip:Object.assign({formatter:function(p){return p.seriesName+' #'+p.data[2]+'<br>余弦相似度：<b>'+p.data[0].toFixed(3)+'</b>'}},tooltip),grid:{left:95,right:28,top:24,bottom:40},xAxis:{type:'value',min:-.2,max:.9,name:'余弦相似度',nameTextStyle:{color:muted},axisLabel:{color:muted},splitLine:{lineStyle:{color:grid}}},yAxis:{type:'category',data:['陌生人负样本','本人正样本'],axisLabel:{color:muted},axisLine:{show:false}},series:[{name:'本人正样本',type:'scatter',symbolSize:13,data:genuine,itemStyle:{color:'#13a986'},markLine:{symbol:'none',lineStyle:{color:'#e84d67',type:'dashed',width:2},label:{formatter:'系统阈值 '+d.identity.threshold,color:'#d7415c'},data:[{xAxis:d.identity.threshold}]}},{name:'陌生人负样本',type:'scatter',symbolSize:10,data:impostor,itemStyle:{color:'#8da0b4'}}]});
+var curve=d.identity.curve;make('threshold-curve',{tooltip:Object.assign({trigger:'axis',valueFormatter:function(v){return (v*100).toFixed(1)+'%'}},tooltip),legend:{top:2,textStyle:{color:muted}},grid:{left:52,right:20,top:48,bottom:38},xAxis:{type:'category',data:curve.map(function(x){return x.threshold.toFixed(2)}),axisLabel:{color:muted,interval:9},axisLine:{lineStyle:{color:grid}}},yAxis:{type:'value',max:1,axisLabel:{color:muted,formatter:function(v){return Math.round(v*100)+'%'}},splitLine:{lineStyle:{color:grid}}},series:[{name:'FAR 误接受率',type:'line',step:'end',showSymbol:false,data:curve.map(function(x){return x.far}),lineStyle:{color:'#e84d67',width:2},itemStyle:{color:'#e84d67'},markLine:{symbol:'none',lineStyle:{color:'#3478f6',type:'dashed'},label:{formatter:'当前 0.40',color:'#3478f6'},data:[{xAxis:'0.40'}]}},{name:'FRR 误拒绝率',type:'line',step:'end',showSymbol:false,data:curve.map(function(x){return x.frr}),lineStyle:{color:'#d89223',width:2},itemStyle:{color:'#d89223'}}]});window.addEventListener('resize',function(){charts.forEach(function(c){c.resize()})})})();
+</script>{% endif %}{% endblock %}

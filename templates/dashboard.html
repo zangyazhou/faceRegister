@@ -1,0 +1,203 @@
+{% extends "base.html" %}
+
+{% block title %}数据驾驶舱 · FacePulse{% endblock %}
+{% block page_name %}数据驾驶舱{% endblock %}
+
+{% block page_content %}
+<section class="hero-row">
+    <div>
+        <div class="eyebrow"><span></span>FACEPULSE COMMAND CENTER</div>
+        <h1>智能考勤数据驾驶舱</h1>
+        <p>从实时人脸识别到课程考勤决策，让每一次签到都有性能指标、风险证据和业务结果。</p>
+    </div>
+    <div class="hero-actions">
+        <span class="refresh-meta"><i></i>数据生成于 {{ dashboard.generated_at }}</span>
+        {% if not dashboard.demo_mode %}
+        <form method="post" action="{{ url_for('seed_demo') }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <button class="btn-demo-seed" type="submit">
+                <svg viewBox="0 0 24 24"><path d="M4 19h16M6 16V8M12 16V4M18 16v-5"/></svg>
+                生成答辩演示数据
+            </button>
+        </form>
+        {% else %}
+        <span class="demo-banner"><b>DEMO</b> 当前指标来自隔离演示数据</span>
+        {% endif %}
+    </div>
+</section>
+
+<section class="kpi-grid">
+    <article class="kpi-card primary">
+        <div class="kpi-head"><span class="kpi-icon"><svg viewBox="0 0 24 24"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M19 8v6M22 11h-6"/></svg></span><span class="kpi-tag">人脸库</span></div>
+        <strong data-kpi="students">{{ dashboard.student_count }}</strong>
+        <p>在库学生总数</p>
+        <small><i class="up">↑</i> 已纳入课程考勤</small>
+    </article>
+    <article class="kpi-card success">
+        <div class="kpi-head"><span class="kpi-icon"><svg viewBox="0 0 24 24"><path d="M4 12a8 8 0 1 0 16 0 8 8 0 1 0-16 0"/><path d="m8.5 12 2.2 2.2 4.8-5"/></svg></span><span class="kpi-tag">今日</span></div>
+        <strong data-kpi="rate">{{ dashboard.attendance_rate }}<em>%</em></strong>
+        <p>当前场次出勤率</p>
+        <small>{{ dashboard.signed_count }} 人已到 · {{ dashboard.absent_count }} 人未到</small>
+    </article>
+    <article class="kpi-card cyan">
+        <div class="kpi-head"><span class="kpi-icon"><svg viewBox="0 0 24 24"><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4"/><circle cx="12" cy="12" r="4"/></svg></span><span class="kpi-tag">端到端</span></div>
+        <strong data-kpi="latency">{{ dashboard.avg_latency }}<em>ms</em></strong>
+        <p>平均识别时延</p>
+        <small>P95 {{ dashboard.p95_latency }} ms</small>
+    </article>
+    <article class="kpi-card warning">
+        <div class="kpi-head"><span class="kpi-icon"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg></span><span class="kpi-tag">状态</span></div>
+        <strong>{{ dashboard.late_count }}</strong>
+        <p>当前迟到人数</p>
+        <small>按场次迟到阈值自动判定</small>
+    </article>
+    <article class="kpi-card danger">
+        <div class="kpi-head"><span class="kpi-icon"><svg viewBox="0 0 24 24"><path d="M12 3 3.5 7v5c0 5 3.6 8.1 8.5 9 4.9-.9 8.5-4 8.5-9V7L12 3Z"/><path d="M12 8v5M12 17h.01"/></svg></span><span class="kpi-tag">今日</span></div>
+        <strong data-kpi="risk">{{ dashboard.risk_count_today }}</strong>
+        <p>风险阻断事件</p>
+        <small>照片攻击与身份冲突</small>
+    </article>
+    <article class="kpi-card violet">
+        <div class="kpi-head"><span class="kpi-icon"><svg viewBox="0 0 24 24"><path d="M4 4h16v16H4zM8 8h3v3H8zM13 8h3M13 11h3M8 15h8"/></svg></span><span class="kpi-tag">引擎</span></div>
+        <strong>{{ dashboard.engines|length or 1 }}</strong>
+        <p>在线推理链路</p>
+        <small>YuNet + SFace + MiniFASNet</small>
+    </article>
+</section>
+
+<section class="dashboard-grid dashboard-grid-main">
+    <article class="panel chart-panel trend-panel">
+        <div class="panel-heading">
+            <div><span class="panel-kicker">ATTENDANCE TREND</span><h2>近 7 日出勤趋势</h2></div>
+            <span class="panel-chip">出勤率 / 人数</span>
+        </div>
+        <div id="attendance-chart" class="chart chart-large"></div>
+    </article>
+    <article class="panel chart-panel">
+        <div class="panel-heading">
+            <div><span class="panel-kicker">DECISION OUTCOME</span><h2>识别决策构成</h2></div>
+            <span class="panel-chip">近 30 天</span>
+        </div>
+        <div id="outcome-chart" class="chart chart-large"></div>
+    </article>
+</section>
+
+<section class="dashboard-grid dashboard-grid-secondary">
+    <article class="panel active-session-panel">
+        <div class="panel-heading">
+            <div><span class="panel-kicker">LIVE SESSION</span><h2>当前考勤任务</h2></div>
+            {% if dashboard.active_session %}<span class="live-badge"><i></i>进行中</span>{% else %}<span class="muted-badge">未激活</span>{% endif %}
+        </div>
+        {% if dashboard.active_session %}
+        <div class="session-course">
+            <span class="course-symbol">CV</span>
+            <div><small>{{ dashboard.active_session.course_code }}</small><h3>{{ dashboard.active_session.course }}</h3><p>{{ dashboard.active_session.title }}</p></div>
+        </div>
+        <div class="session-progress">
+            <div><span>签到进度</span><b>{{ dashboard.signed_count }} / {{ dashboard.total }}</b></div>
+            <div class="progress-track"><i style="width: {{ dashboard.attendance_rate }}%"></i></div>
+        </div>
+        <div class="session-meta">
+            <span><i>教师</i><b>{{ dashboard.active_session.teacher }}</b></span>
+            <span><i>教室</i><b>{{ dashboard.active_session.classroom }}</b></span>
+            <span><i>迟到线</i><b>{{ dashboard.active_session.late_after }}</b></span>
+            <span><i>结束</i><b>{{ dashboard.active_session.ends_at }}</b></span>
+        </div>
+        <a class="panel-action" href="{{ url_for('recognition_center') }}">进入实时识别中心 <span>→</span></a>
+        {% else %}
+        <div class="empty-panel"><span>◫</span><h3>当前没有活动场次</h3><p>创建并激活考勤任务后，签到结果会自动归入课程。</p><a href="{{ url_for('attendance_sessions') }}">创建考勤任务</a></div>
+        {% endif %}
+    </article>
+
+    <article class="panel chart-panel heat-panel">
+        <div class="panel-heading">
+            <div><span class="panel-kicker">TIME DISTRIBUTION</span><h2>签到时段热力图</h2></div>
+            <span class="panel-chip">近 30 天</span>
+        </div>
+        <div id="heatmap-chart" class="chart chart-medium"></div>
+    </article>
+
+    <article class="panel chart-panel latency-panel">
+        <div class="panel-heading">
+            <div><span class="panel-kicker">MODEL LATENCY</span><h2>识别时延趋势</h2></div>
+            <span class="panel-chip good">P95 {{ dashboard.p95_latency }}ms</span>
+        </div>
+        <div id="latency-chart" class="chart chart-medium"></div>
+    </article>
+</section>
+
+<section class="dashboard-grid dashboard-grid-stream">
+    <article class="panel event-panel">
+        <div class="panel-heading">
+            <div><span class="panel-kicker">RECOGNITION STREAM</span><h2>最近识别事件</h2></div>
+            <a href="{{ url_for('recognition_center') }}">查看实时中心</a>
+        </div>
+        <div class="event-table" id="event-stream">
+            <div class="event-row event-header"><span>识别对象</span><span>结果</span><span>质量 / 相似度</span><span>活体</span><span>时延</span><span>时间</span></div>
+            {% for event in dashboard.recent_events[:7] %}
+            <div class="event-row">
+                <span class="event-person"><i>{{ event.name[:1] }}</i><b>{{ event.name }}<small>{{ event.number }}</small></b></span>
+                <span><em class="outcome {{ event.outcome }}">{{ {'success':'签到成功','duplicate':'重复签到','rejected':'风险阻断','unknown':'未识别'}.get(event.outcome,event.outcome) }}</em></span>
+                <span class="metric-pair"><b>{{ '%.0f%%'|format((event.quality or 0)*100) }}</b><small>{{ '%.3f'|format(event.similarity or 0) }}</small></span>
+                <span><em class="risk {{ event.risk_level }}">{{ {'low':'低风险','medium':'需确认','high':'高风险'}.get(event.risk_level,event.risk_level) }}</em></span>
+                <span class="latency-value">{{ event.latency_ms or '--' }}<small>ms</small></span>
+                <span class="event-time">{{ event.time }}</span>
+            </div>
+            {% else %}
+            <div class="empty-row">暂无识别事件，打开签到台后这里会实时更新。</div>
+            {% endfor %}
+        </div>
+    </article>
+
+    <article class="panel risk-panel">
+        <div class="panel-heading">
+            <div><span class="panel-kicker">RISK RADAR</span><h2>风险雷达</h2></div>
+            <a href="{{ url_for('risk_events') }}">全部事件</a>
+        </div>
+        <div class="risk-summary"><span><b>{{ dashboard.risk_count_today }}</b><small>今日阻断</small></span><span><b>100%</b><small>风险留痕</small></span></div>
+        <div class="risk-list">
+            {% for risk in dashboard.recent_risks[:4] %}
+            <div class="risk-item"><span class="risk-shield">!</span><div><b>{{ {'spoof_attack':'疑似照片攻击','identity_collision':'身份冲突'}.get(risk.type,risk.type) }}</b><p>{{ risk.message }}</p><small>{{ risk.time }} · {{ risk.course }}</small></div></div>
+            {% else %}
+            <div class="risk-safe"><span>✓</span><b>当前未发现风险</b><small>活体防护与身份冲突检测运行正常</small></div>
+            {% endfor %}
+        </div>
+    </article>
+</section>
+
+<section class="pipeline-strip">
+    <div class="pipeline-title"><span>AI PIPELINE</span><b>实时推理链路</b></div>
+    <div class="pipeline-step"><i>01</i><span><b>YuNet</b><small>多人脸检测</small></span></div><em>→</em>
+    <div class="pipeline-step"><i>02</i><span><b>质量调度</b><small>清晰度与姿态</small></span></div><em>→</em>
+    <div class="pipeline-step"><i>03</i><span><b>SFace</b><small>特征融合识别</small></span></div><em>→</em>
+    <div class="pipeline-step"><i>04</i><span><b>MiniFASNet</b><small>静默活体检测</small></span></div><em>→</em>
+    <div class="pipeline-step"><i>05</i><span><b>风险决策</b><small>签到与审计留痕</small></span></div>
+    <span class="pipeline-status"><i></i>全部在线</span>
+</section>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='vendor/echarts/echarts.min.js') }}"></script>
+<script>
+(function () {
+    var data = {{ dashboard|tojson }};
+    if (!window.echarts) return;
+    var ink = '#24364b', muted = '#7b8da1', grid = 'rgba(129,149,171,.18)';
+    var charts = [];
+    function chart(id, option) { var node=document.getElementById(id); if(!node)return; var c=echarts.init(node); c.setOption(option); charts.push(c); }
+    var commonGrid = {left: 42, right: 18, top: 30, bottom: 32};
+    chart('attendance-chart', {
+        tooltip:{trigger:'axis',backgroundColor:'#ffffff',borderColor:'#dce5ee',textStyle:{color:ink},extraCssText:'box-shadow:0 8px 24px rgba(36,54,75,.10);'},
+        grid:commonGrid,
+        xAxis:{type:'category',data:data.trend.map(x=>x.date),axisLine:{lineStyle:{color:grid}},axisLabel:{color:muted}},
+        yAxis:[{type:'value',max:100,axisLabel:{color:muted,formatter:'{value}%'},splitLine:{lineStyle:{color:grid}}},{type:'value',axisLabel:{show:false},splitLine:{show:false}}],
+        series:[{name:'出勤率',type:'line',smooth:.35,symbol:'circle',symbolSize:7,data:data.trend.map(x=>x.rate),lineStyle:{width:3,color:'#13a986'},itemStyle:{color:'#13a986',borderColor:'#ffffff',borderWidth:3},areaStyle:{color:new echarts.graphic.LinearGradient(0,0,0,1,[{offset:0,color:'rgba(19,169,134,.22)'},{offset:1,color:'rgba(19,169,134,0)'}])}},{name:'签到人数',type:'bar',yAxisIndex:1,barWidth:14,data:data.trend.map(x=>x.count),itemStyle:{color:'rgba(52,120,246,.28)',borderRadius:[5,5,0,0]}}]
+    });
+    var outcomes=data.outcome_counts||{};
+    chart('outcome-chart', {tooltip:{trigger:'item',backgroundColor:'#fff',borderColor:'#dce5ee',textStyle:{color:ink}},legend:{bottom:3,textStyle:{color:muted},itemWidth:9,itemHeight:9},series:[{type:'pie',radius:['58%','78%'],center:['50%','43%'],padAngle:3,itemStyle:{borderRadius:6},label:{show:false},data:[{name:'成功',value:outcomes.success||0,itemStyle:{color:'#13a986'}},{name:'重复',value:outcomes.duplicate||0,itemStyle:{color:'#3478f6'}},{name:'风险阻断',value:outcomes.rejected||0,itemStyle:{color:'#e84d67'}},{name:'未识别',value:outcomes.unknown||0,itemStyle:{color:'#9aa8b7'}}]}],graphic:[{type:'text',left:'center',top:'33%',style:{text:String((outcomes.success||0)+(outcomes.duplicate||0)),fill:ink,font:'700 28px Segoe UI',textAlign:'center'}},{type:'text',left:'center',top:'47%',style:{text:'有效识别',fill:muted,font:'12px Segoe UI',textAlign:'center'}}]});
+    chart('heatmap-chart',{tooltip:{position:'top',backgroundColor:'#fff',borderColor:'#dce5ee',textStyle:{color:ink}},grid:{left:45,right:14,top:10,bottom:38},xAxis:{type:'category',data:Array.from({length:17},(_,i)=>(i+6)+':00'),axisLabel:{color:muted,interval:2,fontSize:10},axisLine:{lineStyle:{color:grid}}},yAxis:{type:'category',data:['周一','周二','周三','周四','周五','周六','周日'],axisLabel:{color:muted},axisLine:{show:false}},visualMap:{min:0,max:Math.max(5,...data.heatmap.map(x=>x[2])),show:false,inRange:{color:['#edf4f8','#93d7cc','#13a986']}},series:[{type:'heatmap',data:data.heatmap.map(x=>[x[0]-6,x[1],x[2]]),itemStyle:{borderColor:'#ffffff',borderWidth:2,borderRadius:3}}]});
+    chart('latency-chart',{tooltip:{trigger:'axis',backgroundColor:'#fff',borderColor:'#dce5ee',textStyle:{color:ink}},grid:{left:42,right:15,top:20,bottom:30},xAxis:{type:'category',data:data.latency_trend.map(x=>x.date),axisLine:{lineStyle:{color:grid}},axisLabel:{color:muted}},yAxis:{type:'value',axisLabel:{color:muted,formatter:'{value}ms'},splitLine:{lineStyle:{color:grid}}},series:[{type:'line',smooth:true,data:data.latency_trend.map(x=>x.avg),symbolSize:6,lineStyle:{width:3,color:'#7657e8'},itemStyle:{color:'#7657e8',borderColor:'#fff',borderWidth:2},areaStyle:{color:new echarts.graphic.LinearGradient(0,0,0,1,[{offset:0,color:'rgba(118,87,232,.18)'},{offset:1,color:'rgba(118,87,232,0)'}])},markLine:{silent:true,symbol:'none',lineStyle:{color:'rgba(216,146,35,.45)',type:'dashed'},data:[{yAxis:200,label:{formatter:'200ms 目标',color:'#b87613'}}]}}]});
+    window.addEventListener('resize',function(){charts.forEach(c=>c.resize());});
+})();
+</script>
+{% endblock %}

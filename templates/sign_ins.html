@@ -1,0 +1,66 @@
+{% extends "base.html" %}
+
+{% block title %}签到记录 - 人脸识别签到系统{% endblock %}
+{% block page_name %}签到记录{% endblock %}
+
+{% block page_content %}
+<div class="page-header">
+    <div>
+        <h2 class="page-title"><span class="dot"></span>签到记录</h2>
+        <p class="page-subtitle">查看全部签到明细</p>
+    </div>
+    <form class="d-flex gap-2 flex-wrap align-items-center" method="get">
+        <input type="date" class="form-control" name="date" value="{{ date_str }}" style="width: 160px;">
+        <input type="text" class="form-control" name="number" placeholder="学号" value="{{ number or '' }}" style="width: 160px;">
+        <button class="btn btn-outline-secondary" type="submit">筛选</button>
+        <a class="btn btn-ghost" href="{{ url_for('sign_ins') }}">重置</a>
+    </form>
+</div>
+
+<div class="card">
+    <div class="card-body">
+        {% if records %}
+        <div class="table-responsive">
+            <table class="table table-hover align-middle">
+                <thead>
+                    <tr>
+                        <th>学号</th>
+                        <th>姓名</th>
+                        <th>签到时间</th>
+                        <th>签到日期</th>
+                    </tr>
+                </thead>
+                <tbody>
+                {% for r in records %}
+                    <tr>
+                        <td class="text-muted-2">{{ r.user.number }}</td>
+                        <td>
+                            <div class="d-flex align-items-center gap-2">
+                                <span class="user-avatar" style="width:28px;height:28px;font-size:.72rem;">{{ r.user.username[:1] }}</span>
+                                <span class="fw-semibold">{{ r.user.username }}</span>
+                            </div>
+                        </td>
+                        <td>
+                            <span class="d-inline-flex align-items-center gap-1">
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color:#94a3b8;"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
+                                {{ r.sign_time.strftime('%Y-%m-%d %H:%M:%S') }}
+                            </span>
+                        </td>
+                        <td><span class="badge badge-soft-muted">{{ r.sign_date }}</span></td>
+                    </tr>
+                {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+        <div class="empty-state">
+            <div class="empty-icon">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><rect x="8" y="2" width="8" height="4" rx="1"/><path d="M9 12l2 2 4-4"/></svg>
+            </div>
+            <p class="fw-semibold mb-1">暂无签到记录</p>
+            <p class="small mb-0">学生签到后会在这里显示</p>
+        </div>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}
