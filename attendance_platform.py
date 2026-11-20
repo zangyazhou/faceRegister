@@ -113,7 +113,8 @@ def close_attendance_session(attendance_session, now=None):
     now = now or datetime.now()
     existing_ids = {record.user_id for record in attendance_session.records}
     for enrollment in attendance_session.course.enrollments:
-        if enrollment.user_id not in existing_ids:
+        if (enrollment.user.lifecycle_status == 'active' and
+                enrollment.user_id not in existing_ids):
             db.session.add(AttendanceRecord(
                 session_id=attendance_session.id,
                 user_id=enrollment.user_id,
@@ -284,7 +285,8 @@ def build_dashboard(demo_mode=False, now=None):
                            RecognitionEvent.created_at >= window_start)
                    .group_by(RecognitionEvent.engine).all())
 
-    return {
+    from lifecycle_service import build_lifecycle_summary
+    result = {
         'demo_mode': demo_mode,
         'generated_at': now.strftime('%Y-%m-%d %H:%M:%S'),
         'student_count': student_count,
@@ -307,6 +309,8 @@ def build_dashboard(demo_mode=False, now=None):
         'recent_risks': risks,
         'active_session': _serialize_session(active) if active else None,
     }
+    result.update(build_lifecycle_summary(demo_mode, now))
+    return result
 
 
 def seed_demo_data(now=None):
@@ -314,6 +318,8 @@ def seed_demo_data(now=None):
     now = now or datetime.now().replace(second=0, microsecond=0)
     existing = Course.query.filter_by(code='DEMO-CV-01').first()
     if existing:
+        from lifecycle_service import ensure_demo_laboratory
+        ensure_demo_laboratory(now=now)
         return {'created': False, 'course_id': existing.id}
 
     student_role = Role.query.filter_by(name='Student').first()
@@ -335,6 +341,9 @@ def seed_demo_data(now=None):
             db.session.add(student)
         students.append(student)
     db.session.flush()
+
+    from lifecycle_service import ensure_demo_laboratory
+    ensure_demo_laboratory(now=now, users=students)
 
     course = Course(code='DEMO-CV-01', name=u'计算机视觉与智能感知',
                     teacher=u'李老师', classroom=u'人工智能实验室 A305',

@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+{% import "_form.html" as form_macros %}
+{% block title %}实验室与门禁 - LabGuard{% endblock %}
+{% block page_name %}实验室与门禁{% endblock %}
+{% block page_content %}
+<div class="page-header"><div><div class="eyebrow"><span></span>LABORATORY & ACCESS POINT</div><h2 class="page-title">实验室空间与门禁点</h2><p class="page-subtitle">用实验室、区域和门禁点承载可解释的访问权限</p></div></div>
+<div class="laboratory-layout">
+    <section class="lab-list">
+        {% for lab in laboratories %}
+        <article class="panel lab-card">
+            <div class="lab-card-head"><span class="lab-symbol">LAB</span><div><small>{{ lab.code }}</small><h2>{{ lab.name }}</h2><p>{{ lab.location or '位置待配置' }} · 负责人 {{ lab.manager or '待指定' }}</p></div><span class="lifecycle-badge active"><i></i>运行中</span></div>
+            <p class="lab-description">{{ lab.description or '暂无研究方向说明。' }}</p>
+            <div class="lab-stats"><span><b>{{ lab.memberships|selectattr('status','equalto','active')|list|length }}</b><small>有效成员</small></span><span><b>{{ lab.access_points|length }}</b><small>门禁点</small></span></div>
+            <div class="access-point-list">
+                {% for point in lab.access_points %}
+                <div><span><b>{{ point.name }}</b><small>{{ point.code }} · {{ point.location or lab.location }}</small></span><a class="btn btn-sm btn-ghost" target="_blank" href="{{ url_for('web_sign_in', gate=point.code) }}">打开通行终端</a></div>
+                {% else %}<p class="text-muted-2">尚未配置门禁点。</p>{% endfor %}
+            </div>
+        </article>
+        {% else %}<div class="empty-state panel"><p class="fw-semibold">尚未创建实验室</p><p>先在右侧创建实验室，再添加门禁点。</p></div>{% endfor %}
+    </section>
+    <aside class="lab-forms">
+        <section class="panel"><div class="panel-heading"><div><span class="panel-kicker">NEW LAB</span><h2>创建实验室</h2></div></div>{{ form_macros.quick_form(form) }}</section>
+        <section class="panel"><div class="panel-heading"><div><span class="panel-kicker">NEW GATE</span><h2>添加门禁点</h2></div></div>{{ form_macros.quick_form(point_form, url_for('create_access_point')) }}</section>
+    </aside>
+</div>
+{% endblock %}

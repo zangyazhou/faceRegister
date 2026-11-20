@@ -1,0 +1,83 @@
+{% extends "base.html" %}
+{% block title %}{{ person.username }} - 人员档案{% endblock %}
+{% block page_name %}人员档案{% endblock %}
+
+{% block page_content %}
+<div class="page-header">
+    <div>
+        <div class="eyebrow"><span></span>IDENTITY LIFECYCLE PROFILE</div>
+        <h2 class="page-title d-flex align-items-center gap-2"><span class="user-avatar">{{ person.username[:1] }}</span>{{ person.username }}</h2>
+        <p class="page-subtitle">{{ person.number }} · {{ {'student':'学生','teacher':'教师','researcher':'科研人员','visitor':'临时访客'}.get(person.person_type, person.person_type) }}</p>
+    </div>
+    <div class="d-flex gap-2"><span class="lifecycle-badge {{ person.lifecycle_status }}"><i></i>{{ {'active':'在组','suspended':'暂停','offboarding':'待离组'}.get(person.lifecycle_status, person.lifecycle_status) }}</span><a class="btn btn-ghost" href="{{ url_for('edit_user', id=person.id) }}">编辑档案</a></div>
+</div>
+
+<div class="profile-grid">
+    <section class="panel profile-overview">
+        <div class="panel-heading"><div><span class="panel-kicker">PROFILE</span><h2>基础档案</h2></div></div>
+        <div class="profile-facts">
+            <span><small>入组日期</small><b>{{ person.joined_at or '未填写' }}</b></span>
+            <span><small>预计离组</small><b>{{ person.expected_leave_at or '长期' }}</b></span>
+            <span><small>备用核验</small><b>{{ {'manual':'人工核验','card':'校园卡','qrcode':'临时二维码'}.get(person.alternative_auth, person.alternative_auth) }}</b></span>
+            <span><small>授权状态</small><b>{{ '已取得单独授权' if person.privacy_consent_at else '尚未记录' }}</b></span>
+        </div>
+        <div class="membership-list">
+            <h3>实验室归属</h3>
+            {% for item in person.lab_memberships %}
+            <div class="membership-item"><span class="lab-symbol">LAB</span><div><b>{{ item.organization.name }}</b><small>{{ item.role_title }} · {{ item.organization.location or '位置待配置' }}</small></div><em class="{{ item.status }}">{{ {'active':'有效','ended':'已结束'}.get(item.status,item.status) }}</em></div>
+            {% else %}<p class="text-muted-2">暂未分配实验室。</p>{% endfor %}
+        </div>
+    </section>
+
+    <section class="panel biometric-card">
+        <div class="panel-heading"><div><span class="panel-kicker">BIOMETRIC VAULT</span><h2>人脸模板</h2></div><span class="privacy-chip">不保存原图</span></div>
+        {% if person.face_template and person.face_template.status == 'active' %}
+        <div class="template-state ready"><span>✓</span><div><b>模板有效</b><small>{{ person.face_template.algorithm }} · {{ person.face_template.model_version }}</small></div></div>
+        <div class="template-meta"><span>最近更新<b>{{ person.face_template.updated_at.strftime('%Y-%m-%d %H:%M') }}</b></span><span>SFace 特征<b>{{ '已录入' if person.face_template.sface_encoding else '缺失' }}</b></span></div>
+        {% elif person.face_encoding_sface %}
+        <div class="template-state pending"><span>↻</span><div><b>历史模板待迁移</b><small>仍可识别，建议重新保存档案完成迁移</small></div></div>
+        {% else %}
+        <div class="template-state empty"><span>—</span><div><b>尚未录入人脸</b><small>该人员不会进入识别人脸库</small></div></div>
+        {% endif %}
+        <a class="panel-action" href="{{ url_for('edit_user', id=person.id) }}">重新录入或更新模板 <span>→</span></a>
+    </section>
+</div>
+
+<div class="dashboard-grid dashboard-grid-main mt-4">
+    <section class="panel">
+        <div class="panel-heading"><div><span class="panel-kicker">ACCESS POLICY</span><h2>区域通行授权</h2></div></div>
+        <div class="grant-list">
+            {% for grant in person.access_grants %}
+            <div class="grant-item"><span><b>{{ grant.access_point.name }}</b><small>{{ grant.access_point.organization.name }} · {{ grant.access_point.code }}</small></span><em class="{{ grant.status }}">{{ {'active':'有效','suspended':'随人员暂停','revoked':'已撤销'}.get(grant.status,grant.status) }}</em>{% if grant.status != 'revoked' %}<form method="post" action="{{ url_for('revoke_access_grant', grant_id=grant.id) }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="btn btn-sm btn-ghost" type="submit">撤销</button></form>{% endif %}</div>
+            {% else %}<p class="text-muted-2">尚未授予任何门禁点。</p>{% endfor %}
+        </div>
+        {% if grant_form.access_point_id.choices %}
+        <form class="grant-form" method="post" action="{{ url_for('grant_person_access', person_id=person.id) }}">
+            {{ grant_form.hidden_tag() }}
+            <div>{{ grant_form.access_point_id.label(class='form-label') }}{{ grant_form.access_point_id(class='form-select') }}</div>
+            <div>{{ grant_form.ends_at.label(class='form-label') }}{{ grant_form.ends_at(class='form-control') }}</div>
+            {{ grant_form.submit(class='btn btn-primary') }}
+        </form>
+        {% endif %}
+    </section>
+
+    <section class="panel">
+        <div class="panel-heading"><div><span class="panel-kicker">LIFECYCLE</span><h2>生命周期时间线</h2></div></div>
+        <div class="timeline-list">
+            {% for item in timeline %}<div class="timeline-item"><i></i><div><b>{{ {'registered':'建立档案','active':'恢复在组','suspended':'暂停授权','access_granted':'授予权限','access_revoked':'撤销权限'}.get(item.event_type,item.event_type) }}</b><p>{{ item.summary }}</p><small>{{ item.created_at.strftime('%Y-%m-%d %H:%M:%S') }}</small></div></div>{% else %}<p class="text-muted-2">暂无状态事件。</p>{% endfor %}
+        </div>
+    </section>
+</div>
+
+<section class="panel mt-4 lifecycle-actions">
+    <div class="panel-heading"><div><span class="panel-kicker">STATE CONTROL</span><h2>状态与离组处理</h2></div></div>
+    <div class="state-actions">
+        {% if person.lifecycle_status == 'active' %}
+        <form method="post" action="{{ url_for('change_person_lifecycle', person_id=person.id) }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="status" value="suspended"><button class="btn btn-outline-warning" type="submit">暂停全部通行权限</button></form>
+        {% else %}
+        <form method="post" action="{{ url_for('change_person_lifecycle', person_id=person.id) }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="status" value="active"><button class="btn btn-outline-success" type="submit">恢复在组状态</button></form>
+        {% endif %}
+        <div class="offboard-box"><div><b>离组与隐私清理</b><p>立即撤销全部权限、删除人脸模板、人员档案及关联明细，只保留匿名销毁凭证。</p></div><form method="post" action="{{ url_for('offboard_person', person_id=person.id) }}" onsubmit="return confirm('该操作会物理删除人员档案和人脸模板，且无法恢复。确定继续吗？')"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input class="form-control" name="confirmation" placeholder="输入 ERASE 确认" required><button class="btn btn-danger" type="submit">执行离组清理</button></form></div>
+    </div>
+</section>
+{% endblock %}

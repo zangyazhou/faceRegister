@@ -1,18 +1,18 @@
 {% extends "base.html" %}
-{% block page_name %}编辑学生{% endblock %}
+{% block page_name %}编辑人员档案{% endblock %}
 {% import "_form.html" as form_macros %}
 
-{% block title %}修改资料 - 人脸识别签到系统{% endblock %}
+{% block title %}修改人员档案 - LabGuard{% endblock %}
 
 {% block page_content %}
 <div class="row justify-content-center">
     <div class="col-lg-6 col-md-8">
         <div class="page-header">
             <div>
-                <h2 class="page-title"><span class="dot"></span>修改资料</h2>
+                <h2 class="page-title"><span class="dot"></span>修改人员档案</h2>
                 <p class="page-subtitle">
                     <span class="user-avatar me-2" style="width:26px;height:26px;font-size:.72rem;">{{ user.username[:1] }}</span>
-                    {{ user.username }}（学号 {{ user.number }}）
+                    {{ user.username }}（人员编号 {{ user.number }}）
                 </p>
             </div>
         </div>
@@ -24,13 +24,13 @@
         </div>
 
         <div class="alert alert-light border rounded-3 small mt-3 mb-0 text-muted-2">
-            提示：密码和人脸照片留空表示不修改。旧学生重新上传一次照片后，
-            Web 签到会自动启用高速 YuNet + SFace 流水线。
+            提示：密码和人脸照片留空表示不修改。重新录入人脸必须确认单独授权，
+            新模板将写入独立生物特征库并记录算法版本。
         </div>
 
-        <a class="btn btn-ghost mt-3 d-inline-flex align-items-center gap-1" href="{{ url_for('index') }}">
+        <a class="btn btn-ghost mt-3 d-inline-flex align-items-center gap-1" href="{{ url_for('students') }}">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>
-            返回学生列表
+            返回人员列表
         </a>
     </div>
 </div>

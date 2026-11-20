@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}风险事件 · FacePulse{% endblock %}
+{% block title %}风险事件 · LabGuard{% endblock %}
 {% block page_name %}风险事件{% endblock %}
 {% block page_content %}
 <section class="hero-row compact-hero"><div><div class="eyebrow"><span></span>SECURITY AUDIT</div><h1>风险事件中心</h1><p>记录照片攻击、屏幕重放与身份冲突的最终判定，形成可解释、可追溯的安全证据链。</p></div><form class="risk-filter" method="get"><a class="{{ 'active' if not severity }}" href="{{ url_for('risk_events') }}">全部</a><a class="{{ 'active' if severity=='high' }}" href="{{ url_for('risk_events',severity='high') }}">高风险</a><a class="{{ 'active' if severity=='medium' }}" href="{{ url_for('risk_events',severity='medium') }}">需复核</a></form></section>

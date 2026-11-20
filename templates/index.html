@@ -1,124 +1,83 @@
 {% extends "base.html" %}
 
-{% block title %}学生管理 - 人脸识别签到系统{% endblock %}
-{% block page_name %}学生与人脸库{% endblock %}
+{% block title %}人员生命周期 - LabGuard{% endblock %}
+{% block page_name %}人员生命周期{% endblock %}
 
 {% block page_content %}
 <div class="page-header student-page-header">
     <div>
-        <div class="eyebrow"><span></span>STUDENT & FACE GALLERY</div>
-        <h2 class="page-title">学生与人脸库</h2>
-        <p class="page-subtitle">统一管理学生档案、课程关系和 SFace 深度特征录入状态</p>
+        <div class="eyebrow"><span></span>PERSON LIFECYCLE & BIOMETRIC VAULT</div>
+        <h2 class="page-title">实验室人员生命周期</h2>
+        <p class="page-subtitle">统一管理入组、区域授权、人脸模板、暂停与离组隐私清理</p>
     </div>
     <a class="btn btn-primary d-inline-flex align-items-center gap-1" href="{{ url_for('add_user') }}">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg>
-        添加新学生
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M12 5v14M5 12h14"/></svg>
+        建立人员档案
     </a>
 </div>
 
-<div class="student-summary">
-    <div><span>学生总数</span><b>{{ students|length }}</b><small>当前数据空间</small></div>
-    <div><span>SFace 已录入</span><b>{{ enrolled_count }}</b><small>高速识别特征</small></div>
-    <div><span>待录入</span><b>{{ students|length - enrolled_count }}</b><small>不会进入识别人脸库</small></div>
-    <div><span>当前引擎</span><b class="engine-name">YuNet + SFace</b><small>128 维时序特征融合</small></div>
+<div class="student-summary lifecycle-summary">
+    <div><span>在组人员</span><b>{{ lifecycle.active_people }}</b><small>可进入识别与授权流程</small></div>
+    <div><span>人脸模板</span><b>{{ lifecycle.template_count }}</b><small>独立模板库有效记录</small></div>
+    <div><span>暂停授权</span><b>{{ lifecycle.suspended_people }}</b><small>不会进入识别人脸库</small></div>
+    <div><span>30 天内到期</span><b>{{ lifecycle.expiring_people }}</b><small>需要续期或安排离组</small></div>
 </div>
 
 <div class="card">
     <div class="card-body">
-        <form class="d-flex mb-3" method="post" role="search" style="max-width: 380px;">
-            {{ form.hidden_tag() }}
-            <div class="input-group">
-                {{ form.number(class="form-control", placeholder="输入学号精准查询") }}
-                <button class="btn btn-outline-secondary d-inline-flex align-items-center gap-1" type="submit">
-                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>
-                    搜索
-                </button>
+        <div class="d-flex flex-wrap justify-content-between gap-3 mb-3">
+            <form class="d-flex" method="post" role="search" style="max-width: 420px; width:100%;">
+                {{ form.hidden_tag() }}
+                <div class="input-group">
+                    {{ form.number(class="form-control", placeholder="输入人员编号查询") }}
+                    <button class="btn btn-outline-secondary" type="submit">搜索</button>
+                </div>
+            </form>
+            <div class="filter-pills">
+                <a class="{{ 'active' if not status_filter }}" href="{{ url_for('students') }}">全部</a>
+                <a class="{{ 'active' if status_filter == 'active' }}" href="{{ url_for('students', status='active') }}">在组</a>
+                <a class="{{ 'active' if status_filter == 'suspended' }}" href="{{ url_for('students', status='suspended') }}">暂停</a>
+                <a class="{{ 'active' if status_filter == 'offboarding' }}" href="{{ url_for('students', status='offboarding') }}">待离组</a>
             </div>
-        </form>
+        </div>
 
         {% if students %}
         <div class="table-responsive">
             <table class="table table-hover align-middle">
-                <thead>
-                    <tr>
-                        <th style="width: 110px;">身份</th>
-                        <th>学号</th>
-                        <th>姓名</th>
-                        <th>识别特征</th>
-                        <th>课程数</th>
-                        <th class="text-end" style="width: 200px;">操作</th>
-                    </tr>
-                </thead>
+                <thead><tr><th>人员</th><th>类型</th><th>实验室</th><th>生命周期</th><th>人脸模板</th><th>有效期</th><th class="text-end">操作</th></tr></thead>
                 <tbody>
-                {% for student in students %}
+                {% for person in students %}
+                    {% set active_memberships = person.lab_memberships|selectattr('status','equalto','active')|list %}
                     <tr>
-                        <td>
-                            {% if student.role.name == 'Admin' %}
-                            <span class="badge badge-soft-primary">管理员</span>
-                            {% else %}
-                            <span class="badge badge-soft-muted">学生</span>
-                            {% endif %}
-                        </td>
-                        <td class="text-muted-2">{{ student.number }}</td>
                         <td>
                             <div class="d-flex align-items-center gap-2">
-                                <span class="user-avatar">{{ student.username[:1] }}</span>
-                                <span class="fw-semibold">{{ student.username }}</span>
+                                <span class="user-avatar">{{ person.username[:1] }}</span>
+                                <span class="fw-semibold">{{ person.username }}<small class="d-block text-muted-2">{{ person.number }}</small></span>
                             </div>
                         </td>
+                        <td><span class="badge badge-soft-muted">{{ {'student':'学生','teacher':'教师','researcher':'科研人员','visitor':'访客'}.get(person.person_type, person.person_type) }}</span></td>
                         <td>
-                            {% if student.face_encoding_sface %}
-                            <span class="badge badge-soft-success">SFace 已录入</span>
-                            {% elif student.face_encoding %}
-                            <span class="badge badge-soft-warning">仅旧版特征</span>
-                            {% else %}
-                            <span class="badge badge-soft-warning">未录入</span>
-                            {% endif %}
+                            {% if active_memberships %}
+                            <b>{{ active_memberships[0].organization.name }}</b><small class="d-block text-muted-2">{{ active_memberships[0].role_title }}</small>
+                            {% else %}<span class="text-muted-2">暂未分配</span>{% endif %}
                         </td>
-                        <td><span class="course-count">{{ student.course_enrollments|length }} 门</span></td>
-                        <td class="text-end">
-                            <div class="d-inline-flex gap-1">
-                                <a class="btn btn-ghost btn-sm" href="{{ url_for('edit_user', id=student.id) }}">修改资料</a>
-                                {% if student.role.name != 'Admin' %}
-                                <form method="post" action="{{ url_for('remove_user', id=student.id) }}"
-                                      data-delete-form
-                                      data-student-name="{{ student.username }}"
-                                      data-student-number="{{ student.number }}">
-                                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                                    <button class="btn btn-danger btn-sm" type="submit">删除</button>
-                                </form>
-                                {% endif %}
-                            </div>
+                        <td><span class="lifecycle-badge {{ person.lifecycle_status }}"><i></i>{{ {'active':'在组','suspended':'暂停','offboarding':'待离组'}.get(person.lifecycle_status, person.lifecycle_status) }}</span></td>
+                        <td>
+                            {% if person.face_template and person.face_template.status == 'active' and person.face_template.sface_encoding %}
+                            <span class="badge badge-soft-success">SFace 有效</span>
+                            {% elif person.face_encoding_sface %}<span class="badge badge-soft-warning">待迁移模板</span>
+                            {% else %}<span class="badge badge-soft-muted">未录入</span>{% endif %}
                         </td>
+                        <td>{{ person.expected_leave_at or '长期' }}</td>
+                        <td class="text-end"><a class="btn btn-ghost btn-sm" href="{{ url_for('person_detail', person_id=person.id) }}">查看完整档案</a></td>
                     </tr>
                 {% endfor %}
                 </tbody>
             </table>
         </div>
         {% else %}
-        <div class="empty-state">
-            <div class="empty-icon">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H7a4 4 0 0 0-4 4v2"/><circle cx="10" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
-            </div>
-            <p class="fw-semibold mb-1">没有符合条件的学生</p>
-            <p class="small mb-0">点击右上角「添加新学生」录入第一位学生</p>
-        </div>
+        <div class="empty-state"><div class="empty-icon">＋</div><p class="fw-semibold mb-1">当前没有符合条件的人员</p><p class="small mb-0">建立人员档案后，可继续配置实验室与门禁权限。</p></div>
         {% endif %}
     </div>
 </div>
-{% endblock %}
-
-{% block scripts %}
-<script>
-// 删除确认：从 data 属性取姓名/学号，避免把用户输入拼进内联 JS（XSS）
-document.addEventListener('submit', function (e) {
-    var form = e.target.closest('form[data-delete-form]');
-    if (!form) return;
-    var name = form.getAttribute('data-student-name');
-    var number = form.getAttribute('data-student-number');
-    if (!window.confirm('确定删除学生 ' + name + '（学号 ' + number + '）吗？')) {
-        e.preventDefault();
-    }
-});
-</script>
 {% endblock %}

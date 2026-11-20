@@ -28,10 +28,12 @@ from anti_spoof import (AntiSpoofModelUnavailable,
                         get_anti_spoof_engine)
 from api import (find_best_match, face_encodings_with_landmarks,
                  face_landmarks, face_locations, load_image_file)
-from app import User
+from app import AccessPoint, User
 from attendance_platform import record_recognition_decision
 from attendance import record_sign_in
 from functions import parse_face_encoding
+from lifecycle_service import (evaluate_access, record_access_event,
+                               template_value)
 from opencv_face_engine import (FaceModelUnavailable, find_best_cosine_match,
                                 get_opencv_face_engine, normalize_feature)
 
@@ -49,9 +51,14 @@ def _json(status, code, message, **extra):
 def _load_registered(field='face_encoding'):
     """返回 [(user, np.ndarray 128维), ...]，跳过 face_encoding 为空或解析失败的学生。"""
     pairs = []
-    column = getattr(User, field)
-    for u in User.query.filter(column.isnot(None)).all():
-        enc = parse_face_encoding(getattr(u, field))
+    query = User.query.filter_by(lifecycle_status='active')
+    gate_code = request.args.get('gate', '').strip().upper()
+    if gate_code:
+        point = AccessPoint.query.filter_by(code=gate_code, is_active=True).first()
+        if point is not None:
+            query = query.filter_by(is_demo=bool(point.is_demo))
+    for u in query.all():
+        enc = parse_face_encoding(template_value(u, field))
         if enc is not None:
             pairs.append((u, enc))
     return pairs
@@ -752,8 +759,13 @@ def handle_sign_in_image():
         confirmed = (track.get('votes', 0) >= votes_required and
                      liveness['passed'])
         if confirmed and not track.get('completed'):
-            record = record_sign_in(user.id)
-            outcome = 'success' if record is not None else 'duplicate'
+            gate_code = request.args.get('gate', '').strip().upper() or None
+            access_decision = evaluate_access(user, gate_code)
+            record = (record_sign_in(user.id)
+                      if access_decision['allowed'] else None)
+            outcome = ('success' if record is not None else
+                       'duplicate' if access_decision['allowed'] else
+                       'access_denied')
             event, attendance_record, attendance_created = record_recognition_decision(
                 user_id=user.id, track_id=info['track_id'], outcome=outcome,
                 engine=match_engine, quality=info['quality'],
@@ -763,9 +775,15 @@ def handle_sign_in_image():
                 risk_level=liveness['risk'] or 'low',
                 latency_ms=(time.perf_counter() - request_started) * 1000,
                 liveness_mode=liveness['mode'])
-            duplicate = record is None and not attendance_created
+            if gate_code:
+                record_access_event(user, event, access_decision)
+            duplicate = (access_decision['allowed'] and record is None and
+                         not attendance_created)
             signed_item = {'name': user.username, 'number': user.number,
                            'duplicate': duplicate,
+                           'denied': not access_decision['allowed'],
+                           'access_code': access_decision['code'],
+                           'access_message': access_decision['message'],
                            'event_id': event.id}
             sign_time = (record.sign_time if record is not None else
                          attendance_record.checked_at if attendance_record else None)
@@ -778,6 +796,11 @@ def handle_sign_in_image():
             track['final_event_id'] = event.id
             track['completed'] = True
             face['completed'] = True
+            face['access_decision'] = {
+                'allowed': access_decision['allowed'],
+                'code': access_decision['code'],
+                'message': access_decision['message'],
+            }
         faces.append(face)
 
     # 所有键均使用字符串 track_id，避免 Flask Cookie session 把整数 dict key

@@ -1,6 +1,6 @@
 @echo off
 setlocal
-REM 人脸识别签到系统 启动脚本
+REM LabGuard 高校实验室可信通行平台 启动脚本
 cd /d "%~dp0"
 set "PYTHON_CMD=python"
 if exist ".venv\Scripts\python.exe" set "PYTHON_CMD=.venv\Scripts\python.exe"

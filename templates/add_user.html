@@ -1,16 +1,16 @@
 {% extends "base.html" %}
-{% block page_name %}录入学生{% endblock %}
+{% block page_name %}建立人员档案{% endblock %}
 {% import "_form.html" as form_macros %}
 
-{% block title %}添加新学生 - 人脸识别签到系统{% endblock %}
+{% block title %}建立人员档案 - LabGuard{% endblock %}
 
 {% block page_content %}
 <div class="row justify-content-center">
     <div class="col-lg-6 col-md-8">
         <div class="page-header">
             <div>
-                <h2 class="page-title"><span class="dot"></span>添加新学生</h2>
-                <p class="page-subtitle">上传正面清晰照片，系统自动提取人脸特征</p>
+                <h2 class="page-title"><span class="dot"></span>人员入组登记</h2>
+                <p class="page-subtitle">建立最小化人员档案，分配实验室并按需录入人脸模板</p>
             </div>
         </div>
 
@@ -21,12 +21,12 @@
         </div>
 
         <div class="alert alert-light border rounded-3 small mt-3 mb-0 text-muted-2">
-            提示：请上传<b>单人、正面、光线充足</b>的清晰照片（jpg / png）；新学生初始密码为 <b>123456</b>。
+            隐私提示：照片仅用于现场提取特征，平台不保存原图。录入人脸前必须确认已取得单独授权，并提供校园卡、二维码或人工核验等备用方式。
         </div>
 
-        <a class="btn btn-ghost mt-3 d-inline-flex align-items-center gap-1" href="{{ url_for('index') }}">
+        <a class="btn btn-ghost mt-3 d-inline-flex align-items-center gap-1" href="{{ url_for('students') }}">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>
-            返回学生列表
+            返回人员列表
         </a>
     </div>
 </div>

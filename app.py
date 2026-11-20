@@ -20,7 +20,7 @@ from flask_wtf.csrf import CSRFProtect
 from flask_wtf.file import FileField, FileAllowed
 from werkzeug.security import generate_password_hash, check_password_hash
 from wtforms import StringField, PasswordField, SubmitField, SelectField, \
-    BooleanField, IntegerField, DateField, ValidationError
+    BooleanField, IntegerField, DateField, ValidationError, TextAreaField
 from wtforms.fields import DateTimeLocalField
 from wtforms.validators import DataRequired, InputRequired, Length, Regexp, Optional
 
@@ -119,6 +119,18 @@ class User(UserMixin, db.Model):
     face_encoding = db.Column(db.String(5000))
     # OpenCV SFace 的归一化 128 维特征；与 dlib 特征空间不同，迁移期并存。
     face_encoding_sface = db.Column(db.Text)
+    # 人员全生命周期属性。人脸识别只是身份核验入口，最终是否允许通行
+    # 还必须结合当前人员状态和区域授权。
+    person_type = db.Column(db.String(24), nullable=False, default='student',
+                            index=True)
+    lifecycle_status = db.Column(db.String(24), nullable=False, default='active',
+                                 index=True)
+    joined_at = db.Column(db.Date)
+    expected_leave_at = db.Column(db.Date, index=True)
+    suspended_at = db.Column(db.DateTime)
+    offboarded_at = db.Column(db.DateTime)
+    privacy_consent_at = db.Column(db.DateTime)
+    alternative_auth = db.Column(db.String(24), nullable=False, default='manual')
     # 演示学生与真实学生严格隔离；演示账号永远不写入生物特征。
     is_demo = db.Column(db.Boolean, nullable=False, default=False, index=True)
     sign_ins = db.relationship('SignIn', backref='user', lazy='dynamic',
@@ -162,6 +174,171 @@ class User(UserMixin, db.Model):
             db.session.add(self)
             db.session.commit()
         return ok
+
+    @property
+    def is_access_active(self):
+        return self.lifecycle_status == 'active'
+
+
+class OrganizationUnit(db.Model):
+    """实验室、课题组等人员归属组织。"""
+    __tablename__ = 'organization_units'
+    id = db.Column(db.Integer, primary_key=True)
+    code = db.Column(db.String(32), nullable=False, unique=True, index=True)
+    name = db.Column(db.String(128), nullable=False)
+    unit_type = db.Column(db.String(24), nullable=False, default='laboratory')
+    location = db.Column(db.String(128))
+    manager = db.Column(db.String(64))
+    description = db.Column(db.String(500))
+    is_active = db.Column(db.Boolean, nullable=False, default=True, index=True)
+    is_demo = db.Column(db.Boolean, nullable=False, default=False, index=True)
+    created_at = db.Column(db.DateTime, nullable=False, default=datetime.now)
+    memberships = db.relationship('LabMembership', back_populates='organization',
+                                  cascade='all, delete-orphan')
+    access_points = db.relationship('AccessPoint', back_populates='organization',
+                                    cascade='all, delete-orphan')
+
+
+class AccessPoint(db.Model):
+    """需要进行身份与权限联合决策的实验室门禁点。"""
+    __tablename__ = 'access_points'
+    id = db.Column(db.Integer, primary_key=True)
+    organization_id = db.Column(db.Integer, db.ForeignKey(
+        'organization_units.id'), nullable=False, index=True)
+    code = db.Column(db.String(32), nullable=False, unique=True, index=True)
+    name = db.Column(db.String(128), nullable=False)
+    location = db.Column(db.String(128))
+    is_active = db.Column(db.Boolean, nullable=False, default=True, index=True)
+    is_demo = db.Column(db.Boolean, nullable=False, default=False, index=True)
+    created_at = db.Column(db.DateTime, nullable=False, default=datetime.now)
+    organization = db.relationship('OrganizationUnit', back_populates='access_points')
+    grants = db.relationship('AccessGrant', back_populates='access_point',
+                             cascade='all, delete-orphan')
+
+
+class LabMembership(db.Model):
+    """人员与实验室之间有有效期的成员关系。"""
+    __tablename__ = 'lab_memberships'
+    __table_args__ = (
+        db.UniqueConstraint('organization_id', 'user_id',
+                            name='uq_lab_membership'),
+    )
+    id = db.Column(db.Integer, primary_key=True)
+    organization_id = db.Column(db.Integer, db.ForeignKey(
+        'organization_units.id'), nullable=False, index=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False,
+                        index=True)
+    role_title = db.Column(db.String(64), nullable=False, default='实验室成员')
+    status = db.Column(db.String(24), nullable=False, default='active', index=True)
+    joined_at = db.Column(db.Date, nullable=False, default=date.today)
+    ends_at = db.Column(db.Date, index=True)
+    ended_at = db.Column(db.DateTime)
+    organization = db.relationship('OrganizationUnit', back_populates='memberships')
+    user = db.relationship('User', backref=db.backref(
+        'lab_memberships', cascade='all, delete-orphan'))
+
+
+class AccessGrant(db.Model):
+    """人员对一个门禁点的显式授权。"""
+    __tablename__ = 'access_grants'
+    __table_args__ = (
+        db.UniqueConstraint('access_point_id', 'user_id',
+                            name='uq_access_grant'),
+    )
+    id = db.Column(db.Integer, primary_key=True)
+    access_point_id = db.Column(db.Integer, db.ForeignKey(
+        'access_points.id'), nullable=False, index=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False,
+                        index=True)
+    status = db.Column(db.String(24), nullable=False, default='active', index=True)
+    starts_at = db.Column(db.DateTime, nullable=False, default=datetime.now)
+    ends_at = db.Column(db.DateTime, index=True)
+    source = db.Column(db.String(32), nullable=False, default='membership')
+    granted_at = db.Column(db.DateTime, nullable=False, default=datetime.now)
+    revoked_at = db.Column(db.DateTime)
+    access_point = db.relationship('AccessPoint', back_populates='grants')
+    user = db.relationship('User', backref=db.backref(
+        'access_grants', cascade='all, delete-orphan'))
+
+
+class FaceTemplate(db.Model):
+    """与人员档案分离的人脸模板；不保存任何原始人脸照片。"""
+    __tablename__ = 'face_templates'
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False,
+                        unique=True, index=True)
+    dlib_encoding = db.Column(db.Text)
+    sface_encoding = db.Column(db.Text)
+    algorithm = db.Column(db.String(64), nullable=False,
+                          default='YuNet+SFace')
+    model_version = db.Column(db.String(64), nullable=False,
+                              default='opencv-zoo-2021dec')
+    status = db.Column(db.String(24), nullable=False, default='active', index=True)
+    enrolled_at = db.Column(db.DateTime, nullable=False, default=datetime.now)
+    updated_at = db.Column(db.DateTime, nullable=False, default=datetime.now)
+    expires_at = db.Column(db.DateTime, index=True)
+    destroyed_at = db.Column(db.DateTime)
+    is_demo = db.Column(db.Boolean, nullable=False, default=False, index=True)
+    user = db.relationship('User', backref=db.backref(
+        'face_template', uselist=False, cascade='all, delete-orphan'))
+
+
+class AccessEvent(db.Model):
+    """身份识别完成后的区域授权决策记录。"""
+    __tablename__ = 'access_events'
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=True,
+                        index=True)
+    access_point_id = db.Column(db.Integer, db.ForeignKey(
+        'access_points.id'), nullable=True, index=True)
+    recognition_event_id = db.Column(db.Integer, db.ForeignKey(
+        'recognition_events.id'), nullable=True, index=True)
+    decision = db.Column(db.String(24), nullable=False, index=True)
+    reason_code = db.Column(db.String(48), nullable=False, index=True)
+    reason_text = db.Column(db.String(255), nullable=False)
+    is_demo = db.Column(db.Boolean, nullable=False, default=False, index=True)
+    occurred_at = db.Column(db.DateTime, nullable=False, default=datetime.now,
+                            index=True)
+    user = db.relationship('User', backref='access_events')
+    access_point = db.relationship('AccessPoint', backref='access_events')
+    recognition_event = db.relationship(
+        'RecognitionEvent',
+        backref=db.backref('access_event', uselist=False))
+
+
+class LifecycleEvent(db.Model):
+    """入组、暂停、恢复和离组等状态变更时间线。"""
+    __tablename__ = 'lifecycle_events'
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=True,
+                        index=True)
+    event_type = db.Column(db.String(32), nullable=False, index=True)
+    from_status = db.Column(db.String(24))
+    to_status = db.Column(db.String(24))
+    summary = db.Column(db.String(255), nullable=False)
+    is_demo = db.Column(db.Boolean, nullable=False, default=False, index=True)
+    created_at = db.Column(db.DateTime, nullable=False, default=datetime.now,
+                           index=True)
+    user = db.relationship('User', backref='lifecycle_events')
+
+
+class ErasureTask(db.Model):
+    """离组数据清理结果；只保存随机凭证，不保存被删除人员身份。"""
+    __tablename__ = 'erasure_tasks'
+    id = db.Column(db.Integer, primary_key=True)
+    receipt_code = db.Column(db.String(48), nullable=False, unique=True,
+                             index=True)
+    status = db.Column(db.String(24), nullable=False, default='pending', index=True)
+    trigger_type = db.Column(db.String(32), nullable=False, default='offboarding')
+    templates_deleted = db.Column(db.Integer, nullable=False, default=0)
+    grants_revoked = db.Column(db.Integer, nullable=False, default=0)
+    records_deleted = db.Column(db.Integer, nullable=False, default=0)
+    profile_action = db.Column(db.String(32), nullable=False,
+                               default='physical_delete')
+    message = db.Column(db.String(255), nullable=False)
+    is_demo = db.Column(db.Boolean, nullable=False, default=False, index=True)
+    requested_at = db.Column(db.DateTime, nullable=False, default=datetime.now)
+    completed_at = db.Column(db.DateTime)
 
 
 class SignIn(db.Model):
@@ -329,26 +506,75 @@ class LoginForm(FlaskForm):
 
 
 class SearchForm(FlaskForm):
-    number = StringField(u'学号', validators=[DataRequired(message=u'请输入学号')])
+    number = StringField(u'人员编号', validators=[DataRequired(message=u'请输入人员编号')])
     submit = SubmitField(u'搜索')
 
 
 class UserForm(FlaskForm):
     username = StringField(u'姓名', validators=[DataRequired()])
-    number = StringField(u'学号', validators=[DataRequired(message=u'请输入学号'),
-                                              Regexp(r'^B\d{11}$', message=u'学号格式应为 B 开头 + 11 位数字')])
-    file = FileField('面部照片', validators=[FileAllowed(['jpg', 'jpeg', 'png', 'gif'], u'仅支持图片文件')])
-    submit = SubmitField(u'添加')
+    number = StringField(u'人员编号', validators=[
+        DataRequired(message=u'请输入人员编号'),
+        Regexp(r'^[A-Za-z0-9][A-Za-z0-9_-]{2,19}$',
+               message=u'编号须为 3～20 位字母、数字、下划线或短横线')])
+    person_type = SelectField(u'人员类型', choices=[
+        ('student', u'学生'), ('teacher', u'教师'),
+        ('researcher', u'科研人员'), ('visitor', u'临时访客')])
+    organization_id = SelectField(u'所属实验室', coerce=int,
+                                  validators=[Optional()])
+    role_title = StringField(u'组内身份', validators=[Optional(), Length(0, 64)],
+                             default=u'实验室成员')
+    joined_at = DateField(u'入组日期', default=date.today,
+                          validators=[DataRequired()])
+    expected_leave_at = DateField(u'预计离组日期', validators=[Optional()])
+    alternative_auth = SelectField(u'备用核验方式', choices=[
+        ('manual', u'人工核验'), ('card', u'校园卡'), ('qrcode', u'临时二维码')])
+    privacy_consent = BooleanField(u'已取得人脸信息单独授权')
+    file = FileField(u'面部照片（可稍后录入）', validators=[
+        FileAllowed(['jpg', 'jpeg', 'png'], u'仅支持 jpg / png 图片')])
+    submit = SubmitField(u'建立人员档案')
+
+    def __init__(self, demo_mode=False, *args, **kwargs):
+        super(UserForm, self).__init__(*args, **kwargs)
+        self.organization_id.choices = [(0, u'暂不分配')] + [
+            (item.id, u'%s · %s' % (item.code, item.name))
+            for item in OrganizationUnit.query.filter_by(
+                is_demo=bool(demo_mode), is_active=True)
+            .order_by(OrganizationUnit.code).all()
+        ]
 
     def validate_number(self, field):
         if User.query.filter_by(number=field.data).first():
-            raise ValidationError(u'此学生已存在，请检查学号！')
+            raise ValidationError(u'该人员编号已存在')
+
+    def validate(self, extra_validators=None):
+        valid = super().validate(extra_validators)
+        if self.file.data and not self.privacy_consent.data:
+            self.privacy_consent.errors.append(u'录入人脸前必须确认已取得单独授权')
+            valid = False
+        if (self.expected_leave_at.data and self.joined_at.data and
+                self.expected_leave_at.data < self.joined_at.data):
+            self.expected_leave_at.errors.append(u'预计离组日期不能早于入组日期')
+            valid = False
+        return valid
 
 
 class EditForm(FlaskForm):
     username = StringField(u'姓名', validators=[DataRequired()])
-    number = StringField(u'学号', validators=[DataRequired(message=u'请输入学号'),
-                                              Regexp(r'^B\d{11}$', message=u'学号格式应为 B 开头 + 11 位数字')])
+    number = StringField(u'人员编号', validators=[
+        DataRequired(message=u'请输入人员编号'),
+        Regexp(r'^[A-Za-z0-9][A-Za-z0-9_-]{2,19}$',
+               message=u'编号须为 3～20 位字母、数字、下划线或短横线')])
+    person_type = SelectField(u'人员类型', choices=[
+        ('student', u'学生'), ('teacher', u'教师'),
+        ('researcher', u'科研人员'), ('visitor', u'临时访客')])
+    lifecycle_status = SelectField(u'生命周期状态', choices=[
+        ('active', u'在组'), ('suspended', u'暂停授权'),
+        ('offboarding', u'待离组')])
+    joined_at = DateField(u'入组日期', validators=[Optional()])
+    expected_leave_at = DateField(u'预计离组日期', validators=[Optional()])
+    alternative_auth = SelectField(u'备用核验方式', choices=[
+        ('manual', u'人工核验'), ('card', u'校园卡'), ('qrcode', u'临时二维码')])
+    privacy_consent = BooleanField(u'已取得人脸信息单独授权')
     # 密码留空表示不修改
     password = PasswordField(u'新密码（留空则不修改）', validators=[Optional(), Length(1, 64), \
                                                               Regexp('^[a-zA-Z0-9_.]*$', 0, \
@@ -368,7 +594,78 @@ class EditForm(FlaskForm):
     def validate_number(self, field):
         if field.data != self.user.number and \
                 User.query.filter_by(number=field.data).first():
-            raise ValidationError(u'此学生已存在，请检查学号！')
+            raise ValidationError(u'该人员编号已存在')
+
+    def validate(self, extra_validators=None):
+        valid = super().validate(extra_validators)
+        if self.file.data and not self.privacy_consent.data:
+            self.privacy_consent.errors.append(u'重新录入人脸前必须确认已取得单独授权')
+            valid = False
+        if (self.expected_leave_at.data and self.joined_at.data and
+                self.expected_leave_at.data < self.joined_at.data):
+            self.expected_leave_at.errors.append(u'预计离组日期不能早于入组日期')
+            valid = False
+        return valid
+
+
+class LaboratoryForm(FlaskForm):
+    code = StringField(u'实验室编号', validators=[
+        DataRequired(), Regexp(r'^[A-Za-z0-9][A-Za-z0-9_-]{1,31}$',
+                               message=u'请输入有效编号')])
+    name = StringField(u'实验室名称', validators=[DataRequired(), Length(2, 128)])
+    location = StringField(u'所在位置', validators=[Optional(), Length(0, 128)])
+    manager = StringField(u'负责人', validators=[Optional(), Length(0, 64)])
+    description = TextAreaField(u'研究方向与说明', validators=[Optional(), Length(0, 500)])
+    submit = SubmitField(u'创建实验室')
+
+    def validate_code(self, field):
+        if OrganizationUnit.query.filter_by(code=field.data.strip().upper()).first():
+            raise ValidationError(u'实验室编号已存在')
+
+
+class AccessPointForm(FlaskForm):
+    organization_id = SelectField(u'所属实验室', coerce=int,
+                                  validators=[DataRequired()])
+    code = StringField(u'门禁点编号', validators=[
+        DataRequired(), Regexp(r'^[A-Za-z0-9][A-Za-z0-9_-]{1,31}$',
+                               message=u'请输入有效编号')])
+    name = StringField(u'门禁点名称', validators=[DataRequired(), Length(2, 128)])
+    location = StringField(u'安装位置', validators=[Optional(), Length(0, 128)])
+    submit = SubmitField(u'添加门禁点')
+
+    def __init__(self, demo_mode=False, *args, **kwargs):
+        super(AccessPointForm, self).__init__(*args, **kwargs)
+        self.organization_id.choices = [
+            (item.id, u'%s · %s' % (item.code, item.name))
+            for item in OrganizationUnit.query.filter_by(
+                is_demo=bool(demo_mode), is_active=True)
+            .order_by(OrganizationUnit.code).all()
+        ]
+
+    def validate_code(self, field):
+        if AccessPoint.query.filter_by(code=field.data.strip().upper()).first():
+            raise ValidationError(u'门禁点编号已存在')
+
+
+class AccessGrantForm(FlaskForm):
+    access_point_id = SelectField(u'授权门禁点', coerce=int,
+                                  validators=[DataRequired()])
+    ends_at = DateTimeLocalField(u'授权截止时间（可选）',
+                                 format='%Y-%m-%dT%H:%M',
+                                 validators=[Optional()])
+    submit = SubmitField(u'授予通行权限')
+
+    def __init__(self, user, *args, **kwargs):
+        super(AccessGrantForm, self).__init__(*args, **kwargs)
+        granted_ids = {grant.access_point_id for grant in user.access_grants
+                       if grant.status == 'active'}
+        self.access_point_id.choices = [
+            (item.id, u'%s · %s' % (item.organization.name, item.name))
+            for item in AccessPoint.query.filter_by(
+                is_demo=bool(user.is_demo), is_active=True)
+            .order_by(AccessPoint.code).all()
+            if item.id not in granted_ids
+        ]
 
 
 class ManualSignInForm(FlaskForm):
@@ -470,59 +767,94 @@ def students():
     demo_mode = bool(flask_session.get('demo_mode', False))
     student_role = Role.query.filter_by(name='Student').first()
     query = User.query.filter_by(role=student_role, is_demo=demo_mode)
+    status_filter = request.args.get('status', '').strip().lower()
+    if status_filter in ('active', 'suspended', 'offboarding'):
+        query = query.filter_by(lifecycle_status=status_filter)
     if form.validate_on_submit():
-        # 获得学生列表，其学号包含form中的数字
+        # 人员编号支持模糊搜索。
         student_rows = query.filter(User.number.like(
             '%{}%'.format(form.number.data))).order_by(User.number).all()
     else:
         student_rows = query.order_by(User.number.asc()).all()
-    enrolled_count = sum(1 for item in student_rows if item.face_encoding_sface)
+    enrolled_count = sum(1 for item in student_rows
+                         if ((item.face_template and
+                              item.face_template.status == 'active' and
+                              item.face_template.sface_encoding) or
+                             item.face_encoding_sface))
+    from lifecycle_service import build_lifecycle_summary
+    lifecycle = build_lifecycle_summary(demo_mode)
     return render_template('index.html', form=form, students=student_rows,
                            enrolled_count=enrolled_count,
-                           demo_mode=demo_mode)
+                           demo_mode=demo_mode, lifecycle=lifecycle,
+                           status_filter=status_filter)
 
 
 # 增加新学生
 @app.route('/add-user', methods=['GET', 'POST'])
 @admin_required
 def add_user():
-    form = UserForm()
+    from lifecycle_service import create_membership, sync_face_template
+    demo_mode = bool(flask_session.get('demo_mode', False))
+    form = UserForm(demo_mode=demo_mode)
     if form.validate_on_submit():
-        try:
-            result = get_face_encoding_in_image(form.file.data)
-        except OSError:
-            flash(u'文件格式有误', 'danger')
-            return render_template('add_user.html', form=form)
-        if result["face_found_in_image"] == False:
-            flash(u'未检测到人脸，添加失败！', 'danger')
-            return render_template('add_user.html', form=form)
-        elif result.get("face_count", 1) > 1:
-            flash(u'照片中包含多张人脸，请上传单人照片！', 'danger')
-            return render_template('add_user.html', form=form)
-        else:
-            user = User(username=form.username.data,
-                        number=form.number.data,
-                        face_encoding=result["unknown_face_encodings"],
-                        face_encoding_sface=result.get("sface_encoding"),
-                        password=generate_password_hash('123456'))
-            db.session.add(user)
-            db.session.commit()
-            flash(u'成功添加学生（初始密码：123456）', 'success')
-            return redirect(url_for('students'))
-    return render_template('add_user.html', form=form)
+        result = None
+        if form.file.data:
+            try:
+                result = get_face_encoding_in_image(form.file.data)
+            except OSError:
+                flash(u'文件格式有误', 'danger')
+                return render_template('add_user.html', form=form)
+            if not result['face_found_in_image']:
+                flash(u'未检测到人脸，档案尚未创建', 'danger')
+                return render_template('add_user.html', form=form)
+            if result.get('face_count', 1) != 1:
+                flash(u'照片中必须且只能包含一张人脸', 'danger')
+                return render_template('add_user.html', form=form)
+
+        user = User(
+            username=form.username.data.strip(), number=form.number.data.strip(),
+            person_type=form.person_type.data, lifecycle_status='active',
+            joined_at=form.joined_at.data,
+            expected_leave_at=form.expected_leave_at.data,
+            alternative_auth=form.alternative_auth.data,
+            privacy_consent_at=(datetime.now()
+                                if form.privacy_consent.data else None),
+            password=generate_password_hash('123456'), is_demo=demo_mode)
+        db.session.add(user)
+        db.session.flush()
+        if result:
+            sync_face_template(
+                user, result['unknown_face_encodings'],
+                result.get('sface_encoding'), consent=True)
+        create_membership(
+            user, form.organization_id.data,
+            role_title=form.role_title.data,
+            joined_at=form.joined_at.data,
+            ends_at=form.expected_leave_at.data,
+            grant_all=True)
+        db.session.add(LifecycleEvent(
+            user=user, event_type='registered', from_status=None,
+            to_status='active', summary=u'人员档案已建立并进入在组状态',
+            is_demo=demo_mode))
+        db.session.commit()
+        flash(u'人员档案已建立；区域授权和人脸模板状态已同步', 'success')
+        return redirect(url_for('person_detail', person_id=user.id))
+    return render_template('add_user.html', form=form, demo_mode=demo_mode)
 
 
 # 删除学生（POST，带 CSRF 保护）
 @app.route('/remove-user/<int:id>', methods=['POST'])
 @admin_required
 def remove_user(id):
+    from lifecycle_service import offboard_and_erase
     user = db.get_or_404(User, id)
     if user.role == Role.query.filter_by(name='Admin').first():
         flash(u'不能删除管理员', 'warning')
     else:
-        db.session.delete(user)
-        db.session.commit()
-        flash(u'成功删除此学生', 'success')
+        task = offboard_and_erase(user, reason=u'管理员执行离组隐私清理')
+        flash(u'离组清理已完成，匿名销毁凭证：%s' % task.receipt_code,
+              'success')
+        return redirect(url_for('privacy_center'))
     return redirect(url_for('students'))
 
 
@@ -530,11 +862,18 @@ def remove_user(id):
 @app.route('/edit-user/<int:id>', methods=['GET', 'POST'])
 @admin_required
 def edit_user(id):
+    from lifecycle_service import sync_face_template
     user = db.get_or_404(User, id)
     form = EditForm(user=user)
     if form.validate_on_submit():
+        previous_status = user.lifecycle_status
         user.username = form.username.data
         user.number = form.number.data
+        user.person_type = form.person_type.data
+        user.lifecycle_status = form.lifecycle_status.data
+        user.joined_at = form.joined_at.data
+        user.expected_leave_at = form.expected_leave_at.data
+        user.alternative_auth = form.alternative_auth.data
         if form.file.data:
             try:
                 result = get_face_encoding_in_image(form.file.data)
@@ -547,21 +886,208 @@ def edit_user(id):
             if result.get('face_count', 1) != 1:
                 flash(u'照片中必须且只能包含一张人脸', 'danger')
                 return render_template('edit_user.html', form=form, user=user)
-            user.face_encoding = result['unknown_face_encodings']
-            user.face_encoding_sface = result.get('sface_encoding')
+            sync_face_template(
+                user, result['unknown_face_encodings'],
+                result.get('sface_encoding'), consent=True)
+        elif form.privacy_consent.data and not user.privacy_consent_at:
+            user.privacy_consent_at = datetime.now()
         # 密码留空则不修改，避免覆盖已有哈希
         if form.password.data:
             user.password = generate_password_hash(form.password.data)
         user.role = db.session.get(Role, form.role.data)
+        if previous_status != user.lifecycle_status:
+            db.session.add(LifecycleEvent(
+                user=user, event_type=user.lifecycle_status,
+                from_status=previous_status, to_status=user.lifecycle_status,
+                summary=u'管理员通过人员档案修改生命周期状态',
+                is_demo=bool(user.is_demo)))
+            for grant in user.access_grants:
+                if user.lifecycle_status == 'suspended' and grant.status == 'active':
+                    grant.status = 'suspended'
+                    grant.revoked_at = datetime.now()
+                elif user.lifecycle_status == 'active' and grant.status == 'suspended':
+                    grant.status = 'active'
+                    grant.revoked_at = None
         db.session.add(user)
         db.session.commit()
-        flash(u'个人信息已更改', 'success')
-        return redirect(url_for('students'))
+        flash(u'人员档案与生命周期状态已更新', 'success')
+        return redirect(url_for('person_detail', person_id=user.id))
     form.username.data = user.username
     form.number.data = user.number
+    form.person_type.data = user.person_type
+    form.lifecycle_status.data = user.lifecycle_status
+    form.joined_at.data = user.joined_at
+    form.expected_leave_at.data = user.expected_leave_at
+    form.alternative_auth.data = user.alternative_auth
+    form.privacy_consent.data = bool(user.privacy_consent_at)
     # 不回显密码
     form.role.data = user.role_id
     return render_template('edit_user.html', form=form, user=user)
+
+
+@app.route('/people/<int:person_id>')
+@login_required
+def person_detail(person_id):
+    user = db.get_or_404(User, person_id)
+    if bool(user.is_demo) != bool(flask_session.get('demo_mode', False)):
+        abort(404)
+    grant_form = AccessGrantForm(user=user)
+    timeline = (LifecycleEvent.query.filter_by(user_id=user.id)
+                .order_by(LifecycleEvent.created_at.desc()).limit(50).all())
+    access_rows = (AccessEvent.query.filter_by(user_id=user.id)
+                   .order_by(AccessEvent.occurred_at.desc()).limit(20).all())
+    return render_template('person_detail.html', person=user,
+                           grant_form=grant_form, timeline=timeline,
+                           access_rows=access_rows)
+
+
+@app.route('/people/<int:person_id>/status', methods=['POST'])
+@admin_required
+def change_person_lifecycle(person_id):
+    from lifecycle_service import change_person_status
+    user = db.get_or_404(User, person_id)
+    target = request.form.get('status', '').strip().lower()
+    try:
+        event = change_person_status(user, target)
+    except ValueError as exc:
+        flash(str(exc), 'danger')
+    else:
+        flash(u'人员状态已更新' if event else u'人员状态没有变化', 'success')
+    return redirect(url_for('person_detail', person_id=person_id))
+
+
+@app.route('/people/<int:person_id>/grant-access', methods=['POST'])
+@admin_required
+def grant_person_access(person_id):
+    from lifecycle_service import upsert_access_grant
+    user = db.get_or_404(User, person_id)
+    form = AccessGrantForm(user=user)
+    if form.validate_on_submit():
+        point = db.get_or_404(AccessPoint, form.access_point_id.data)
+        try:
+            upsert_access_grant(user, point, ends_at=form.ends_at.data,
+                                source='manual')
+        except ValueError as exc:
+            flash(str(exc), 'danger')
+        else:
+            db.session.add(LifecycleEvent(
+                user=user, event_type='access_granted',
+                from_status=user.lifecycle_status,
+                to_status=user.lifecycle_status,
+                summary=u'新增区域授权：%s' % point.name,
+                is_demo=bool(user.is_demo)))
+            db.session.commit()
+            flash(u'已授予 %s 通行权限' % point.name, 'success')
+    else:
+        flash(u'授权失败，请检查门禁点和有效期', 'danger')
+    return redirect(url_for('person_detail', person_id=person_id))
+
+
+@app.route('/access-grants/<int:grant_id>/revoke', methods=['POST'])
+@admin_required
+def revoke_access_grant(grant_id):
+    grant = db.get_or_404(AccessGrant, grant_id)
+    grant.status = 'revoked'
+    grant.revoked_at = datetime.now()
+    db.session.add(LifecycleEvent(
+        user=grant.user, event_type='access_revoked',
+        from_status=grant.user.lifecycle_status,
+        to_status=grant.user.lifecycle_status,
+        summary=u'撤销区域授权：%s' % grant.access_point.name,
+        is_demo=bool(grant.user.is_demo)))
+    db.session.commit()
+    flash(u'区域通行权限已撤销', 'success')
+    return redirect(url_for('person_detail', person_id=grant.user_id))
+
+
+@app.route('/people/<int:person_id>/offboard', methods=['POST'])
+@admin_required
+def offboard_person(person_id):
+    from lifecycle_service import offboard_and_erase
+    user = db.get_or_404(User, person_id)
+    if request.form.get('confirmation', '').strip().upper() != 'ERASE':
+        flash(u'请输入 ERASE 确认离组清理', 'danger')
+        return redirect(url_for('person_detail', person_id=person_id))
+    display_name = user.username
+    try:
+        task = offboard_and_erase(
+            user, reason=u'离组触发自动清理：权限、人脸模板和人员档案已删除')
+    except ValueError as exc:
+        flash(str(exc), 'danger')
+        return redirect(url_for('person_detail', person_id=person_id))
+    flash(u'%s 已完成离组清理；匿名销毁凭证 %s' %
+          (display_name, task.receipt_code), 'success')
+    return redirect(url_for('privacy_center'))
+
+
+@app.route('/laboratories', methods=['GET', 'POST'])
+@admin_required
+def laboratories():
+    demo_mode = bool(flask_session.get('demo_mode', False))
+    form = LaboratoryForm()
+    point_form = AccessPointForm(demo_mode=demo_mode, prefix='point')
+    if form.validate_on_submit():
+        item = OrganizationUnit(
+            code=form.code.data.strip().upper(), name=form.name.data.strip(),
+            location=form.location.data.strip(), manager=form.manager.data.strip(),
+            description=form.description.data.strip(), is_demo=demo_mode)
+        db.session.add(item)
+        db.session.commit()
+        flash(u'实验室已创建，可以继续配置门禁点', 'success')
+        return redirect(url_for('laboratories'))
+    rows = (OrganizationUnit.query.filter_by(is_demo=demo_mode)
+            .order_by(OrganizationUnit.created_at.desc()).all())
+    return render_template('laboratories.html', form=form,
+                           point_form=point_form, laboratories=rows,
+                           demo_mode=demo_mode)
+
+
+@app.route('/access-points', methods=['POST'])
+@admin_required
+def create_access_point():
+    demo_mode = bool(flask_session.get('demo_mode', False))
+    form = AccessPointForm(demo_mode=demo_mode, prefix='point')
+    if form.validate_on_submit():
+        organization = db.get_or_404(OrganizationUnit,
+                                     form.organization_id.data)
+        if bool(organization.is_demo) != demo_mode:
+            abort(400)
+        point = AccessPoint(
+            organization=organization, code=form.code.data.strip().upper(),
+            name=form.name.data.strip(), location=form.location.data.strip(),
+            is_demo=demo_mode)
+        db.session.add(point)
+        # 新门禁点默认不扩大任何人的权限，必须在人员详情中显式授权。
+        db.session.commit()
+        flash(u'门禁点已创建；为避免越权，尚未自动授予任何人员', 'success')
+    else:
+        flash(u'门禁点创建失败，请检查编号和所属实验室', 'danger')
+    return redirect(url_for('laboratories'))
+
+
+@app.route('/access-events')
+@login_required
+def access_events():
+    demo_mode = bool(flask_session.get('demo_mode', False))
+    decision = request.args.get('decision', '').strip().lower()
+    query = AccessEvent.query.filter_by(is_demo=demo_mode)
+    if decision in ('allowed', 'denied'):
+        query = query.filter_by(decision=decision)
+    rows = query.order_by(AccessEvent.occurred_at.desc()).limit(300).all()
+    return render_template('access_events.html', events=rows,
+                           decision=decision, demo_mode=demo_mode)
+
+
+@app.route('/privacy-center')
+@login_required
+def privacy_center():
+    demo_mode = bool(flask_session.get('demo_mode', False))
+    tasks = (ErasureTask.query.filter_by(is_demo=demo_mode)
+             .order_by(ErasureTask.requested_at.desc()).limit(200).all())
+    templates = (FaceTemplate.query.filter_by(is_demo=demo_mode)
+                 .order_by(FaceTemplate.updated_at.desc()).limit(200).all())
+    return render_template('privacy_center.html', tasks=tasks,
+                           templates=templates, demo_mode=demo_mode)
 
 
 # 登录，系统只允许管理员登录
@@ -875,7 +1401,13 @@ def toggle_demo_mode():
 # 公开 Web 人脸签到（无需登录）：浏览器只采集截图，识别与活体判定均在后端。
 @app.route('/web-sign-in', methods=['GET'])
 def web_sign_in():
-    return render_template('web_sign_in.html')
+    gate_code = request.args.get('gate', '').strip().upper()
+    access_point = (AccessPoint.query.filter_by(code=gate_code, is_active=True).first()
+                    if gate_code else None)
+    api_url = url_for('api_sign_in_image', gate=access_point.code) \
+        if access_point else url_for('api_sign_in_image')
+    return render_template('web_sign_in.html', access_point=access_point,
+                           api_url=api_url)
 
 
 # Web 签到比对接口：接收前端描述子，后端找最佳匹配 + 多帧确认 + 落库

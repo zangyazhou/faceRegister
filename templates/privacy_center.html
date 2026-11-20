@@ -1,0 +1,11 @@
+{% extends "base.html" %}
+{% block title %}隐私与销毁中心 - LabGuard{% endblock %}
+{% block page_name %}隐私与销毁中心{% endblock %}
+{% block page_content %}
+<div class="page-header"><div><div class="eyebrow"><span></span>PRIVACY & VERIFIABLE ERASURE</div><h2 class="page-title">隐私与可验证销毁中心</h2><p class="page-subtitle">人脸模板与人员档案分离管理；离组后自动撤权、物理清理并生成匿名凭证</p></div></div>
+<div class="privacy-banner"><span>盾</span><div><b>最小化保存策略</b><p>平台不保存上传原图；识别模板只用于身份核验，并可随离组流程一起销毁。备用核验方式保证人脸不是唯一通行方式。</p></div></div>
+<div class="dashboard-grid dashboard-grid-main">
+    <section class="panel"><div class="panel-heading"><div><span class="panel-kicker">BIOMETRIC INVENTORY</span><h2>有效人脸模板</h2></div><span class="panel-chip">{{ templates|length }} 条</span></div><div class="template-list">{% for item in templates %}<div><span class="user-avatar">{{ item.user.username[:1] }}</span><span><b>{{ item.user.username }}</b><small>{{ item.user.number }} · {{ item.algorithm }}</small></span><em class="{{ item.status }}">{{ item.status }}</em><small>{{ item.updated_at.strftime('%Y-%m-%d') }}</small></div>{% else %}<p class="text-muted-2">当前数据空间没有有效人脸模板。</p>{% endfor %}</div></section>
+    <section class="panel"><div class="panel-heading"><div><span class="panel-kicker">ERASURE RECEIPTS</span><h2>匿名销毁凭证</h2></div><span class="panel-chip good">不可反查身份</span></div><div class="erasure-list">{% for task in tasks %}<div><span class="receipt-icon">✓</span><div><b>{{ task.receipt_code }}</b><p>{{ task.message }}</p><small>{{ task.completed_at.strftime('%Y-%m-%d %H:%M:%S') if task.completed_at else '执行中' }}</small></div><span class="erasure-counts">模板 {{ task.templates_deleted }}<br>授权 {{ task.grants_revoked }}<br>记录 {{ task.records_deleted }}</span></div>{% else %}<p class="text-muted-2">尚无离组销毁任务。</p>{% endfor %}</div></section>
+</div>
+{% endblock %}

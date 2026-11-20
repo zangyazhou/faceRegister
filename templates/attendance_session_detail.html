@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}{{ item.title }} · FacePulse{% endblock %}
+{% block title %}{{ item.title }} · LabGuard{% endblock %}
 {% block page_name %}场次详情{% endblock %}
 {% block page_content %}
 <section class="hero-row compact-hero"><div><a class="back-link" href="{{ url_for('attendance_sessions') }}">← 返回考勤任务</a><div class="eyebrow"><span></span>SESSION #{{ item.id }}</div><h1>{{ item.title }}</h1><p>{{ item.course.code }} · {{ item.course.name }} · {{ item.course.teacher }} · {{ item.course.classroom or '教室待定' }}</p></div><div class="detail-actions"><span class="session-status {{ item.status }}"><i></i>{{ {'scheduled':'待开始','active':'进行中','closed':'已结束'}.get(item.status,item.status) }}</span><a class="kiosk-button" href="{{ url_for('export_attendance_session',session_id=item.id) }}">导出 CSV</a></div></section>

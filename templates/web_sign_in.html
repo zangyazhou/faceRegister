@@ -3,7 +3,7 @@
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>人脸签到</title>
+    <title>{{ access_point.name if access_point else '人脸核验终端' }} - LabGuard</title>
     <link rel="stylesheet" type="text/css" href="{{ url_for('static', filename='vendor/bootstrap/bootstrap.min.css') }}">
     <link rel="stylesheet" type="text/css" href="{{ url_for('static', filename='styles.css') }}">
 </head>
@@ -18,8 +18,8 @@
                 </svg>
             </span>
             <div>
-                <h1 class="signin-title">人脸签到</h1>
-                <p class="signin-subtitle">请正对摄像头，系统将自动识别并完成签到</p>
+                <h1 class="signin-title">实验室可信通行</h1>
+                <p class="signin-subtitle">{% if access_point %}{{ access_point.organization.name }} · {{ access_point.name }}{% else %}身份核验与考勤终端{% endif %}</p>
             </div>
         </header>
 
@@ -42,7 +42,8 @@
         <ul class="hint-list signin-hints">
             <li><span class="hint-num">1</span>正对摄像头，保持光线充足</li>
             <li><span class="hint-num">2</span>系统仅在需要时提示一次随机动作，请按人脸框提示操作</li>
-            <li><span class="hint-num">3</span>支持多人同时识别，每人当日只签到一次</li>
+            <li><span class="hint-num">3</span>身份、活体、人员状态与区域权限全部通过后才允许通行</li>
+            <li><span class="hint-num">4</span>无法使用人脸时，可联系管理员改用校园卡或人工核验</li>
         </ul>
     </div>
 
@@ -50,6 +51,7 @@
     'use strict';
     (function () {
         var CSRF_TOKEN = document.getElementById('csrf-token').value;
+        var API_URL = {{ api_url|tojson }};
         // 最多约 10fps；inFlight + 二进制 JPEG 保证不产生旧帧队列。
         var CAPTURE_INTERVAL_MS = 100;
         var STATUS_HOLD_MS = 2500;
@@ -111,8 +113,9 @@
                 var live = f.liveness || {};
                 var color = !f.name ? '#f59e0b' :
                     (f.ambiguous_identity ? '#ef4444' :
+                    (f.access_decision && !f.access_decision.allowed ? '#ef4444' :
                     (live.blocked ? '#ef4444' :
-                    (live.passed ? '#10b981' : '#4f46e5')));
+                    (live.passed ? '#10b981' : '#4f46e5'))));
                 octx.strokeStyle = color;
                 octx.lineWidth = 3;
                 octx.strokeRect(x, target.y, target.w, target.h);
@@ -201,7 +204,7 @@
             inFlight = true;
             var data;
             try {
-                var resp = await fetch('/api/sign-in-image', {
+                var resp = await fetch(API_URL, {
                     method: 'POST',
                     headers: { 'Content-Type': 'image/jpeg', 'X-CSRFToken': CSRF_TOKEN },
                     body: jpeg
@@ -217,15 +220,19 @@
             if (data.status === 'multi') {
                 drawFaces(data.faces || []);
                 if (data.signed && data.signed.length > 0) {
-                    var newSigned = data.signed.filter(function (s) { return !s.duplicate; });
+                    var denied = data.signed.filter(function (s) { return s.denied; });
+                    var newSigned = data.signed.filter(function (s) { return !s.duplicate && !s.denied; });
                     var duplicates = data.signed.filter(function (s) { return s.duplicate; });
-                    if (newSigned.length > 0) {
+                    if (denied.length > 0) {
+                        setStatus('通行已拒绝：' + denied.map(function (s) { return s.name; }).join('、'),
+                                  denied[0].access_message || '当前没有区域权限', false);
+                    } else if (newSigned.length > 0) {
                         var names = newSigned.map(function (s) { return s.name; }).join('、');
-                        setStatus('签到成功：' + names,
-                                  newSigned[0].sign_time || '', true);
+                        setStatus('{{ '允许通行' if access_point else '签到成功' }}：' + names,
+                                  newSigned[0].access_message || newSigned[0].sign_time || '', true);
                     } else {
                         var duplicateNames = duplicates.map(function (s) { return s.name; }).join('、');
-                        setStatus('今日已签到：' + duplicateNames, '无需重复签到');
+                        setStatus('身份已核验：' + duplicateNames, '今日记录已存在，无需重复写入');
                     }
                     // 其它人的识别不中断，只短暂保留本次结果提示。
                     statusHoldUntil = performance.now() + STATUS_HOLD_MS;
@@ -249,7 +256,7 @@
                         }).join('；');
                     setStatus('多人识别中', rec);
                 } else {
-                    setStatus('未识别到已注册学生', '陌生人不会影响同框中的已注册学生');
+                    setStatus('未识别到有效在组人员', '陌生人、暂停人员和已离组人员均不会进入有效人脸库');
                 }
             } else if (data.code === 'NO_FACE') {
                 setStatus('识别中，请正对摄像头', '未检测到人脸');
